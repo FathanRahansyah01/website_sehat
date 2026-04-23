@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Riwayat Pengukuran - SmartWeight IoT</title>
+    <meta name="description" content="Riwayat pengukuran berat badan dari sistem SmartWeight IoT">
+    <link rel="stylesheet" href="weight.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        .history-section {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 28px 28px 56px;
+            flex: 1;
+        }
+
+        .history-table-wrapper {
+            background: var(--white);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-sm);
+            overflow-x: auto;
+            border: 1px solid rgba(0, 0, 0, 0.06);
+            transition: box-shadow var(--transition-med);
+        }
+
+        .history-table-wrapper:hover {
+            box-shadow: var(--shadow-md);
+        }
+
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        .history-table thead {
+            background: var(--grey-50);
+        }
+
+        .history-table th {
+            padding: 16px 18px;
+            text-align: left;
+            font-weight: 700;
+            color: var(--grey-600);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            white-space: nowrap;
+            border-bottom: 2px solid var(--grey-100);
+        }
+
+        .history-table td {
+            padding: 16px 18px;
+            border-top: 1px solid var(--grey-100);
+            color: var(--grey-900);
+            vertical-align: middle;
+        }
+
+        .history-table tbody tr {
+            transition: background var(--transition-fast);
+        }
+
+        .history-table tbody tr:hover {
+            background: var(--grey-50);
+        }
+
+        .weight-final {
+            font-weight: 700;
+            font-size: 1.05rem;
+            color: var(--tel-red);
+        }
+
+        .weight-ocr {
+            color: var(--grey-400);
+            font-size: 0.85rem;
+        }
+
+        .badge-corrected {
+            background: #FFF3CD;
+            color: #856404;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.72rem;
+            font-weight: 600;
+            letter-spacing: 0.2px;
+        }
+
+        .badge-ocr-only {
+            background: #D4EDDA;
+            color: #155724;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.72rem;
+            font-weight: 600;
+            letter-spacing: 0.2px;
+        }
+
+        .badge-manual {
+            background: #CCE5FF;
+            color: #004085;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.72rem;
+            font-weight: 600;
+            letter-spacing: 0.2px;
+        }
+
+        .thumb-img {
+            width: 56px;
+            height: 42px;
+            object-fit: cover;
+            border-radius: var(--radius-xs);
+            border: 1px solid var(--grey-200);
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .thumb-img:hover {
+            transform: scale(1.15);
+            box-shadow: var(--shadow-md);
+        }
+
+        .no-img {
+            color: var(--grey-400);
+            font-size: 0.8rem;
+            font-style: italic;
+        }
+
+        .history-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 22px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .history-count {
+            color: var(--grey-600);
+            font-size: 0.88rem;
+        }
+
+        .btn-delete {
+            background: none;
+            border: 1px solid var(--grey-200);
+            color: var(--grey-600);
+            padding: 6px 14px;
+            border-radius: var(--radius-xs);
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 500;
+            font-family: 'Inter', sans-serif;
+            transition: all var(--transition-fast);
+        }
+
+        .btn-delete:hover {
+            background: var(--tel-red-bg);
+            border-color: var(--tel-red);
+            color: var(--tel-red);
+        }
+
+        .btn-delete-all {
+            background: var(--white);
+            border: 1px solid var(--tel-red);
+            color: var(--tel-red);
+            padding: 10px 22px;
+            border-radius: var(--radius-sm);
+            font-size: 0.85rem;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+        }
+
+        .btn-delete-all:hover {
+            background: var(--tel-red);
+            color: var(--white);
+            box-shadow: var(--shadow-red);
+        }
+
+        .load-more-btn {
+            display: block;
+            margin: 24px auto;
+            padding: 12px 36px;
+            background: var(--tel-red);
+            color: var(--white);
+            border: none;
+            border-radius: var(--radius-sm);
+            font-size: 0.9rem;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            box-shadow: 0 2px 8px rgba(228, 0, 43, 0.2);
+        }
+
+        .load-more-btn:hover {
+            background: var(--tel-red-dark);
+            box-shadow: 0 4px 16px rgba(228, 0, 43, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 72px 20px;
+            color: var(--grey-400);
+        }
+
+        .empty-state-icon {
+            font-size: 3rem;
+            margin-bottom: 10px;
+        }
+
+        /* Modal preview gambar */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+            animation: fadeIn 0.2s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .modal-img {
+            max-width: 90vw;
+            max-height: 80vh;
+            border-radius: var(--radius);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+        }
+
+        .modal-close {
+            position: fixed;
+            top: 20px;
+            right: 30px;
+            color: white;
+            font-size: 2rem;
+            cursor: pointer;
+            z-index: 1001;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(8px);
+            transition: background var(--transition-fast);
+        }
+
+        .modal-close:hover {
+            background: rgba(255, 255, 255, 0.25);
+        }
+
+        /* Confirm dialog */
+        .confirm-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .confirm-overlay.active {
+            display: flex;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .confirm-box {
+            background: var(--white);
+            border-radius: var(--radius);
+            padding: 36px;
+            max-width: 420px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+        }
+
+        .confirm-icon {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .confirm-title {
+            font-weight: 700;
+            font-size: 1.15rem;
+            margin-bottom: 10px;
+            letter-spacing: -0.2px;
+        }
+
+        .confirm-msg {
+            color: var(--grey-600);
+            font-size: 0.9rem;
+            margin-bottom: 24px;
+            line-height: 1.6;
+        }
+
+        .confirm-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+
+        .confirm-btn {
+            padding: 11px 28px;
+            border-radius: var(--radius-xs);
+            border: none;
+            font-size: 0.9rem;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+        }
+
+        .confirm-cancel {
+            background: var(--grey-100);
+            color: var(--grey-700);
+        }
+
+        .confirm-cancel:hover {
+            background: var(--grey-200);
+        }
+
+        .confirm-yes {
+            background: var(--tel-red);
+            color: var(--white);
+            box-shadow: 0 2px 8px rgba(228, 0, 43, 0.25);
+        }
+
+        .confirm-yes:hover {
+            background: var(--tel-red-dark);
+            box-shadow: 0 4px 14px rgba(228, 0, 43, 0.35);
+            transform: translateY(-1px);
+        }
+
+        @media (max-width: 768px) {
+            .history-section {
+                padding: 20px 16px 40px;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .history-table th, .history-table td {
+                padding: 12px 10px;
+                font-size: 0.8rem;
+            }
+            .thumb-img {
+                width: 40px;
+                height: 30px;
+            }
+        }
+
+        /* Fade-in animasi tabel saat data siap */
+        .history-table-wrapper {
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+        .history-table-wrapper.loaded {
+            opacity: 1;
+        }
+
+        /* Loading skeleton row */
+        .skeleton-row td {
+            color: transparent !important;
+            background: linear-gradient(90deg, var(--grey-100) 25%, var(--grey-50) 50%, var(--grey-100) 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.2s infinite;
+            border-radius: 4px;
+            height: 20px;
+        }
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <span class="brand-text">Smart<span class="brand-highlight">Weight</span></span>
+            </div>
+            <ul class="nav-links">
+                <li><a href="weight.html" class="nav-link">Dashboard</a></li>
+                <li><a href="riwayat.html" class="nav-link active">Riwayat</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <header class="hero" style="padding: 32px 28px 28px;">
+        <div class="hero-content">
+            <h1 class="hero-title">Riwayat <span class="text-gradient">Pengukuran</span></h1>
+            <p class="hero-subtitle">Semua data pengukuran berat badan dari sensor IoT.</p>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="history-section">
+
+        <div class="history-header">
+            <div>
+                <h2 class="section-title" style="margin-bottom: 6px;">Data Pengukuran</h2>
+                <span class="history-count" id="historyCount">Memuat data...</span>
+            </div>
+            <button class="btn-delete-all" id="btnDeleteAll" style="display:none;">Hapus Semua</button>
+        </div>
+
+        <div class="history-table-wrapper">
+            <table class="history-table">
+                <thead>
+                    <tr>
+                        <th>No</th>
+                        <th>Tanggal</th>
+                        <th>Berat Final (kg)</th>
+                        <th>Berat OCR (kg)</th>
+                        <th>Status</th>
+                        <th>Gambar</th>
+                        <th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody id="historyBody">
+                    <tr class="skeleton-row">
+                        <td colspan="7" style="padding: 16px;">&nbsp;</td>
+                    </tr>
+                    <tr class="skeleton-row">
+                        <td colspan="7" style="padding: 16px;">&nbsp;</td>
+                    </tr>
+                    <tr class="skeleton-row">
+                        <td colspan="7" style="padding: 16px;">&nbsp;</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <button class="load-more-btn" id="btnLoadMore" style="display:none;">Muat Lebih Banyak</button>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <p>&copy; 2026 SmartWeight IoT - Telkom University</p>
+            <p class="footer-sub">Proyek Magang - Sistem Monitoring Berat Badan</p>
+        </div>
+    </footer>
+
+    <!-- Modal Preview Gambar -->
+    <div class="modal-overlay" id="imageModal">
+        <span class="modal-close" id="modalClose">&times;</span>
+        <img class="modal-img" id="modalImg" src="" alt="Preview gambar">
+    </div>
+
+    <!-- Confirm Dialog -->
+    <div class="confirm-overlay" id="confirmDialog">
+        <div class="confirm-box">
+            <div class="confirm-title" id="confirmTitle">Apakah Anda yakin?</div>
+            <div class="confirm-msg" id="confirmMsg">Data yang dihapus tidak dapat dikembalikan.</div>
+            <div class="confirm-actions">
+                <button class="confirm-btn confirm-cancel" id="confirmCancel">Batal</button>
+                <button class="confirm-btn confirm-yes" id="confirmYes">Ya, Hapus</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'weight.php';
+        let currentLimit = 20;
+        let pendingAction = null;
+
+        // === Custom Confirm Dialog ===
+        function showConfirm(title, msg) {
+            return new Promise((resolve) => {
+                document.getElementById('confirmTitle').textContent = title;
+                document.getElementById('confirmMsg').textContent = msg;
+                document.getElementById('confirmDialog').classList.add('active');
+
+                const yes = document.getElementById('confirmYes');
+                const cancel = document.getElementById('confirmCancel');
+
+                const cleanup = () => {
+                    document.getElementById('confirmDialog').classList.remove('active');
+                    yes.replaceWith(yes.cloneNode(true));
+                    cancel.replaceWith(cancel.cloneNode(true));
+                };
+
+                document.getElementById('confirmYes').addEventListener('click', () => { cleanup(); resolve(true); });
+                document.getElementById('confirmCancel').addEventListener('click', () => { cleanup(); resolve(false); });
+            });
+        }
+
+        // === Load History ===
+        async function loadHistory(limit) {
+            const body = document.getElementById('historyBody');
+            const countEl = document.getElementById('historyCount');
+            const btnDeleteAll = document.getElementById('btnDeleteAll');
+
+            try {
+                const res = await fetch(API_URL + '?action=history&limit=' + limit);
+                const data = await res.json();
+
+                if (!data.success || !data.data || data.data.length === 0) {
+                    body.innerHTML = `
+                        <tr><td colspan="7" class="empty-state">
+                            <p>Belum ada data pengukuran</p>
+                        </td></tr>`;
+                    countEl.textContent = '0 data';
+                    btnDeleteAll.style.display = 'none';
+                    return;
+                }
+
+                countEl.textContent = data.count + ' data ditampilkan';
+                btnDeleteAll.style.display = 'inline-block';
+                body.innerHTML = '';
+
+                data.data.forEach((item, index) => {
+                    const tr = document.createElement('tr');
+
+                    // Tanggal
+                    const date = new Date(item.created_at);
+                    const dateStr = date.toLocaleDateString('id-ID', {
+                        day: 'numeric', month: 'short', year: 'numeric',
+                        hour: '2-digit', minute: '2-digit'
+                    });
+
+                    // Status badge
+                    let statusBadge = '';
+                    const ocrVal = item.ocr_weight;
+                    const finalVal = item.weight_kg;
+
+                    if (ocrVal !== null && ocrVal !== finalVal) {
+                        statusBadge = '<span class="badge-corrected">Dikoreksi</span>';
+                    } else if (ocrVal !== null) {
+                        statusBadge = '<span class="badge-ocr-only">OCR</span>';
+                    } else {
+                        statusBadge = '<span class="badge-manual">Manual</span>';
+                    }
+
+                    // OCR weight
+                    const ocrDisplay = ocrVal !== null ? ocrVal.toFixed(2) : '-';
+
+                    // Gambar
+                    let imgCell = '';
+                    if (item.image_url) {
+                        imgCell = `<img class="thumb-img" src="${item.image_url}?t=${Date.now()}" 
+                                        alt="Capture" onclick="showImage('${item.image_url}')">`;
+                    } else {
+                        imgCell = '<span class="no-img">Tidak ada</span>';
+                    }
+
+                    tr.innerHTML = `
+                        <td>${index + 1}</td>
+                        <td>${dateStr}</td>
+                        <td><span class="weight-final">${finalVal.toFixed(2)}</span></td>
+                        <td><span class="weight-ocr">${ocrDisplay}</span></td>
+                        <td>${statusBadge}</td>
+                        <td>${imgCell}</td>
+                        <td><button class="btn-delete" onclick="deleteRecord(${item.id})">Hapus</button></td>
+                    `;
+
+                    body.appendChild(tr);
+                });
+
+                // Show Load More
+                const btnMore = document.getElementById('btnLoadMore');
+                btnMore.style.display = data.count >= limit ? 'block' : 'none';
+
+                // Fade-in tabel setelah data siap
+                requestAnimationFrame(() => {
+                    document.querySelector('.history-table-wrapper').classList.add('loaded');
+                });
+
+            } catch (err) {
+                console.error('Error:', err);
+                body.innerHTML = `
+                    <tr><td colspan="7" class="empty-state">
+                        <p>Gagal memuat data. Pastikan server aktif.</p>
+                    </td></tr>`;
+                document.querySelector('.history-table-wrapper').classList.add('loaded');
+            }
+        }
+
+        // === Delete Single Record ===
+        async function deleteRecord(id) {
+            const confirmed = await showConfirm(
+                'Hapus data ini?',
+                'Data pengukuran ini akan dihapus permanen beserta gambarnya.'
+            );
+            if (!confirmed) return;
+
+            try {
+                const res = await fetch(API_URL, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: id })
+                });
+                const result = await res.json();
+                if (result.success) {
+                    loadHistory(currentLimit);
+                } else {
+                    alert('Gagal menghapus: ' + result.message);
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+
+        // === Delete All ===
+        document.getElementById('btnDeleteAll').addEventListener('click', async () => {
+            const confirmed = await showConfirm(
+                'Hapus SEMUA data riwayat?',
+                'Seluruh data pengukuran dan gambar akan dihapus permanen. Tindakan ini tidak dapat dibatalkan!'
+            );
+            if (!confirmed) return;
+
+            try {
+                const res = await fetch(API_URL, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ delete_all: true })
+                });
+                const result = await res.json();
+                if (result.success) {
+                    loadHistory(currentLimit);
+                } else {
+                    alert('Gagal menghapus: ' + result.message);
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        });
+
+        // === Image Modal ===
+        function showImage(url) {
+            document.getElementById('modalImg').src = url + '?t=' + Date.now();
+            document.getElementById('imageModal').classList.add('active');
+        }
+
+        document.getElementById('modalClose').addEventListener('click', () => {
+            document.getElementById('imageModal').classList.remove('active');
+        });
+
+        document.getElementById('imageModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) {
+                e.currentTarget.classList.remove('active');
+            }
+        });
+
+        // === Load More ===
+        document.getElementById('btnLoadMore').addEventListener('click', () => {
+            currentLimit += 20;
+            loadHistory(currentLimit);
+        });
+
+        // === Initial Load ===
+        loadHistory(currentLimit);
+    </script>
+
+</body>
+
+</html>
