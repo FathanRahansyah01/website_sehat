@@ -1,0 +1,56 @@
+# =============================================
+# SmartWeight IoT - Docker Compose
+# =============================================
+
+services:
+  # --- Web App (PHP + Apache + Python OCR) ---
+  web:
+    build: .
+    container_name: smartweight-web
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    environment:
+      - DB_HOST=db
+      - DB_USER=${DB_USER:-smartweight}
+      - DB_PASS=${DB_PASS:-smartweight123}
+      - DB_NAME=${DB_NAME:-iotsehat}
+    volumes:
+      - uploads_data:/var/www/html/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - smartweight-net
+
+  # --- MySQL Database ---
+  db:
+    image: mysql:8.0
+    container_name: smartweight-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${DB_NAME:-iotsehat}
+      MYSQL_USER: ${DB_USER:-smartweight}
+      MYSQL_PASSWORD: ${DB_PASS:-smartweight123}
+    ports:
+      - "${DB_PORT:-3307}:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpassword}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - smartweight-net
+
+volumes:
+  db_data:
+  uploads_data:
+
+networks:
+  smartweight-net:
+    driver: bridge

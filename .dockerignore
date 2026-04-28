@@ -1,0 +1,27 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Python virtual environment
+.venv
+
+# Firmware ESP32 (tidak perlu di container)
+esp32cam_weight/
+
+# Upload files (pakai Docker volume)
+uploads/*
+!uploads/.gitkeep
+
+# Documentation
+*.md
+README*
+
+# IDE / OS files
+.vscode
+.idea
+*.DS_Store
+Thumbs.db
+
+# Environment secrets (jangan di-copy ke image)
+.env
