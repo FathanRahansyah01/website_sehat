@@ -15,10 +15,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit();
 }
 
-require_once 'db_config.php';
+require_once __DIR__ . '/../Database/db_config.php';
 
 // --- Konfigurasi ---
-define('UPLOAD_DIR', __DIR__ . '/uploads/');
+define('UPLOAD_DIR', __DIR__ . '/../uploads/');
 define('TESSERACT_PATH', 'C:\\Program Files\\Tesseract-OCR\\tesseract.exe');
 define('ALLOWED_EXTENSIONS', ['jpg', 'jpeg', 'png']);
 define('MAX_FILE_SIZE', 5 * 1024 * 1024); // 5MB
@@ -231,7 +231,7 @@ function handleImageUpload($conn) {
  */
 function runOCR($imagePath) {
     // --- Metode 1: EasyOCR via Python (lebih akurat) ---
-    $pythonScript = __DIR__ . '/ocr_reader.py';
+    $pythonScript = __DIR__ . '/../ocr_reader.py';
     
     if (file_exists($pythonScript)) {
         $cmd = 'python "' . $pythonScript . '" "' . $imagePath . '" 2>&1';
@@ -386,7 +386,7 @@ function handleGetLatest($conn) {
             'weight_kg' => floatval($row['weight_kg']),
             'ocr_weight' => $row['ocr_weight'] !== null ? floatval($row['ocr_weight']) : null,
             'image_path' => $row['image_path'],
-            'image_url' => $row['image_path'] ? $row['image_path'] : null,
+            'image_url' => $row['image_path'] ? '../' . $row['image_path'] : null,
             'created_at' => $row['created_at']
         ];
         echo json_encode(['success' => true, 'data' => $data]);
@@ -417,7 +417,7 @@ function handleGetHistory($conn, $limit) {
             'weight_kg' => floatval($row['weight_kg']),
             'ocr_weight' => $row['ocr_weight'] !== null ? floatval($row['ocr_weight']) : null,
             'image_path' => $row['image_path'],
-            'image_url' => $row['image_path'] ? $row['image_path'] : null,
+            'image_url' => $row['image_path'] ? '../' . $row['image_path'] : null,
             'created_at' => $row['created_at']
         ];
     }
@@ -442,10 +442,10 @@ function handleGetImage($conn, $id) {
     $result = $stmt->get_result();
 
     if ($result && $row = $result->fetch_assoc()) {
-        if ($row['image_path'] && file_exists(__DIR__ . '/' . $row['image_path'])) {
+        if ($row['image_path'] && file_exists(__DIR__ . '/../' . $row['image_path'])) {
             echo json_encode([
                 'success' => true,
-                'data' => ['image_url' => $row['image_path']]
+                'data' => ['image_url' => '../' . $row['image_path']]
             ]);
         } else {
             echo json_encode(['success' => true, 'data' => ['image_url' => null], 'message' => 'Tidak ada gambar']);
@@ -476,11 +476,11 @@ function handleDeleteWeight($conn, $id) {
 
     if ($result && $row = $result->fetch_assoc()) {
         // Hapus file gambar jika ada
-        if ($row['image_path'] && file_exists(__DIR__ . '/' . $row['image_path'])) {
-            unlink(__DIR__ . '/' . $row['image_path']);
+        if ($row['image_path'] && file_exists(__DIR__ . '/../' . $row['image_path'])) {
+            unlink(__DIR__ . '/../' . $row['image_path']);
         }
         // Hapus juga file preprocessed (jika ada)
-        $base = __DIR__ . '/' . pathinfo($row['image_path'], PATHINFO_DIRNAME) . '/' . pathinfo($row['image_path'], PATHINFO_FILENAME);
+        $base = __DIR__ . '/../' . pathinfo($row['image_path'], PATHINFO_DIRNAME) . '/' . pathinfo($row['image_path'], PATHINFO_FILENAME);
         foreach (['_crop_enhance.png', '_thresh_low.png', '_thresh_high.png', '_inverted.png', '_upscale.png'] as $suffix) {
             if (file_exists($base . $suffix)) unlink($base . $suffix);
         }
@@ -507,8 +507,8 @@ function handleDeleteAll($conn) {
     // Hapus semua file gambar di uploads
     $result = $conn->query("SELECT image_path FROM weight_history WHERE image_path IS NOT NULL");
     while ($row = $result->fetch_assoc()) {
-        if ($row['image_path'] && file_exists(__DIR__ . '/' . $row['image_path'])) {
-            unlink(__DIR__ . '/' . $row['image_path']);
+        if ($row['image_path'] && file_exists(__DIR__ . '/../' . $row['image_path'])) {
+            unlink(__DIR__ . '/../' . $row['image_path']);
         }
     }
 
