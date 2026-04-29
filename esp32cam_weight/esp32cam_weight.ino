@@ -19,7 +19,7 @@
 // --- WiFi ---
 const char* ssid = "Barat";
 const char* password = "gyfw4773";
-const char* serverURL = "http://172.19.163.99/website_sehat/Dashboard/index.php";
+const char* serverURL = "http://172.19.163.99/website_sehat/index.php";
 
 // --- Pin ---
 // LCD I2C: SDA=2, SCL=14 (SCL shared dengan SPI SCK, pin muxing)
