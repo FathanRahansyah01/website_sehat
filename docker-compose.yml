@@ -14,6 +14,7 @@ services:
       - DB_USER=${DB_USER:-smartweight}
       - DB_PASS=${DB_PASS:-smartweight123}
       - DB_NAME=${DB_NAME:-iotsehat}
+      - TZ=Asia/Jakarta
     volumes:
       - uploads_data:/var/www/html/uploads
     depends_on:
@@ -32,6 +33,7 @@ services:
       MYSQL_DATABASE: ${DB_NAME:-iotsehat}
       MYSQL_USER: ${DB_USER:-smartweight}
       MYSQL_PASSWORD: ${DB_PASS:-smartweight123}
+      TZ: Asia/Jakarta
     ports:
       - "${DB_PORT:-3307}:3306"
     volumes:

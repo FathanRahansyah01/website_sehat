@@ -1018,9 +1018,8 @@ function handleDeleteAll($conn) {
                 btn.textContent = 'Menyimpan...';
                 btn.disabled = true;
 
-                const payload = currentRecordId
-                    ? { id: currentRecordId, weight_kg: newWeight }
-                    : { weight_kg: newWeight };
+                // Selalu INSERT baru agar masuk sebagai data baru di riwayat
+                const payload = { weight_kg: newWeight };
 
                 const response = await fetch(API_URL, {
                     method: 'POST',
@@ -1030,7 +1029,7 @@ function handleDeleteAll($conn) {
 
                 const result = await response.json();
                 if (result.success) {
-                    alert(currentRecordId ? 'Berat berhasil dikoreksi!' : 'Data berat berhasil disimpan!');
+                    alert('Data berat berhasil disimpan!');
                     document.getElementById('manualWeightInput').value = '';
                     fetchLatestWeight();
                 } else {

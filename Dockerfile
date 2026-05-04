@@ -6,6 +6,10 @@ FROM php:8.2-apache
 # Install PHP extensions untuk MySQL
 RUN docker-php-ext-install mysqli pdo pdo_mysql
 
+# Set timezone PHP ke WIB
+RUN echo "date.timezone = Asia/Jakarta" > /usr/local/etc/php/conf.d/timezone.ini
+ENV TZ=Asia/Jakarta
+
 # Install Python + dependensi OCR + Tesseract (fallback)
 RUN apt-get update && apt-get install -y \
     python3 \
