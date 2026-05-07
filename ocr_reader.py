@@ -270,13 +270,13 @@ def read_weight(image_path):
 
                 all_texts.append({
                     "source": label, "text": text,
-                    "confidence": round(conf, 3)
+                    "confidence": float(round(conf, 3))
                 })
 
                 w_val = parse_weight(text)
                 if w_val is not None:
-                    key = round(w_val, 1)
-                    weight_votes.setdefault(key, []).append(conf)
+                    key = float(round(w_val, 1))
+                    weight_votes.setdefault(key, []).append(float(conf))
                     sys.stderr.write(f"[OCR] '{text}' -> {w_val} kg ({label}, conf:{conf:.2f})\n")
 
         # Step 4: Voting — pilih berat dengan vote terbanyak × confidence
@@ -292,10 +292,10 @@ def read_weight(image_path):
 
             return {
                 "success": True,
-                "weight": best_w,
-                "confidence": round(min(avg_conf, 1.0), 3),
-                "votes": len(confs),
-                "all_candidates": {str(k): len(v)
+                "weight": float(best_w),
+                "confidence": float(round(min(avg_conf, 1.0), 3)),
+                "votes": int(len(confs)),
+                "all_candidates": {str(float(k)): int(len(v))
                                    for k, v in sorted(weight_votes.items(),
                                                       key=lambda x: -len(x[1]))[:5]},
                 "all_detected": all_texts[:10]
