@@ -20,8 +20,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Buat virtual environment Python dan install packages
-RUN python3 -m venv /opt/ocr-venv
-RUN /opt/ocr-venv/bin/pip install --no-cache-dir \
+RUN python3 -m venv /opt/ocr-venv \
+    && /opt/ocr-venv/bin/pip install --no-cache-dir \
     easyocr \
     Pillow \
     opencv-python-headless
@@ -31,9 +31,6 @@ RUN a2enmod rewrite
 
 # Set AllowOverride All agar .htaccess bisa jalan
 RUN sed -i '/<Directory \/var\/www\/html>/,/<\/Directory>/ s/AllowOverride None/AllowOverride All/' /etc/apache2/sites-available/000-default.conf
-
-# Symlink Python OCR agar bisa dipanggil sebagai 'python'
-RUN ln -sf /opt/ocr-venv/bin/python3 /usr/local/bin/python
 
 # Copy semua file project
 COPY . /var/www/html/
@@ -51,5 +48,12 @@ RUN rm -rf /var/www/html/esp32cam_weight \
 RUN mkdir -p /var/www/html/uploads \
     && chown -R www-data:www-data /var/www/html \
     && chmod -R 755 /var/www/html/uploads
+
+# Symlink Python OCR agar bisa dipanggil sebagai 'python' (SETELAH copy)
+RUN ln -sf /opt/ocr-venv/bin/python3 /usr/local/bin/python \
+    && ln -sf /opt/ocr-venv/bin/python3 /usr/local/bin/python3
+
+# Verifikasi instalasi
+RUN /usr/local/bin/python -c "import cv2; import easyocr; import numpy; print('OCR deps OK:', cv2.__version__)"
 
 EXPOSE 80
