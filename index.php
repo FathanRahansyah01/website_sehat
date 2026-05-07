@@ -235,21 +235,33 @@ function runOCR($imagePath) {
         $cmd = 'python "' . $pythonScript . '" "' . $imagePath . '" 2>&1';
         $output = shell_exec($cmd);
         
-        error_log("EasyOCR output: " . $output);
+        error_log("EasyOCR raw output: " . substr($output, 0, 500));
         
         if ($output) {
             // Parse JSON dari output Python
-            // Ambil baris terakhir yang berisi JSON (skip warnings)
+            // Cari baris JSON (mulai dari akhir, skip stderr debug)
             $lines = explode("\n", trim($output));
-            $jsonLine = end($lines);
-            $result = json_decode($jsonLine, true);
-            
-            if ($result && isset($result['success']) && $result['success'] && isset($result['weight'])) {
-                $weight = floatval($result['weight']);
-                if ($weight >= 5 && $weight <= 300) {
-                    error_log("EasyOCR berhasil: {$weight} kg (source: " . ($result['source'] ?? 'unknown') . ", conf: " . ($result['confidence'] ?? '?') . ")");
-                    return $weight;
+            $jsonLine = null;
+            for ($i = count($lines) - 1; $i >= 0; $i--) {
+                $trimmed = trim($lines[$i]);
+                if (strpos($trimmed, '{') === 0) {
+                    $jsonLine = $trimmed;
+                    break;
                 }
+            }
+            
+            if ($jsonLine) {
+                $result = json_decode($jsonLine, true);
+                
+                if ($result && isset($result['success']) && $result['success'] && isset($result['weight'])) {
+                    $weight = floatval($result['weight']);
+                    if ($weight >= 5 && $weight <= 300) {
+                        error_log("EasyOCR berhasil: {$weight} kg (conf: " . ($result['confidence'] ?? '?') . ", votes: " . ($result['votes'] ?? '?') . ")");
+                        return $weight;
+                    }
+                }
+                
+                error_log("EasyOCR result JSON: " . $jsonLine);
             }
         }
         
