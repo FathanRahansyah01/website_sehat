@@ -8,7 +8,7 @@ require_once __DIR__ . '/Database/db_config.php';
 
 // --- Konfigurasi ---
 define('UPLOAD_DIR', __DIR__ . '/uploads/');
-define('TESSERACT_PATH', 'C:\\Program Files\\Tesseract-OCR\\tesseract.exe');
+// Tesseract dihapus, hanya pakai EasyOCR via Python
 define('ALLOWED_EXTENSIONS', ['jpg', 'jpeg', 'png']);
 define('MAX_FILE_SIZE', 5 * 1024 * 1024); // 5MB
 
@@ -246,44 +246,14 @@ function runOCR($imagePath) {
             
             if ($result && isset($result['success']) && $result['success'] && isset($result['weight'])) {
                 $weight = floatval($result['weight']);
-                if ($weight >= 20 && $weight <= 300) {
-                    error_log("EasyOCR berhasil: {$weight} kg");
+                if ($weight >= 5 && $weight <= 300) {
+                    error_log("EasyOCR berhasil: {$weight} kg (source: " . ($result['source'] ?? 'unknown') . ", conf: " . ($result['confidence'] ?? '?') . ")");
                     return $weight;
                 }
             }
         }
         
-        error_log("EasyOCR gagal, mencoba Tesseract...");
-    }
-    
-    // --- Metode 2: Fallback ke Tesseract ---
-    $tesseract = TESSERACT_PATH;
-    
-    if (!file_exists($tesseract)) {
-        error_log("Tesseract juga tidak ditemukan");
-        return null;
-    }
-    
-    $outputFile = tempnam(sys_get_temp_dir(), 'ocr_');
-    $cmd = '"' . $tesseract . '" "' . $imagePath . '" "' . $outputFile . '" --psm 7 -c tessedit_char_whitelist=0123456789.';
-    exec($cmd . ' 2>&1', $output, $returnCode);
-    
-    $ocrResult = '';
-    if (file_exists($outputFile . '.txt')) {
-        $ocrResult = trim(file_get_contents($outputFile . '.txt'));
-        unlink($outputFile . '.txt');
-    }
-    if (file_exists($outputFile)) {
-        unlink($outputFile);
-    }
-    
-    error_log("Tesseract result: '$ocrResult'");
-    
-    if (!empty($ocrResult) && preg_match('/(\d+\.?\d*)/', $ocrResult, $matches)) {
-        $weight = floatval($matches[1]);
-        if ($weight >= 20 && $weight <= 300) {
-            return $weight;
-        }
+        error_log("EasyOCR gagal membaca berat dari gambar");
     }
     
     return null;
