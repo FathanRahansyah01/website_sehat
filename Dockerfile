@@ -10,18 +10,16 @@ RUN docker-php-ext-install mysqli pdo pdo_mysql
 RUN echo "date.timezone = Asia/Jakarta" > /usr/local/etc/php/conf.d/timezone.ini
 ENV TZ=Asia/Jakarta
 
-# Install Python + dependensi OCR
+# Install Python + dependensi sistem untuk OCR
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
-    python3-venv \
     libgl1 \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Buat virtual environment Python dan install packages
-RUN python3 -m venv /opt/ocr-venv \
-    && /opt/ocr-venv/bin/pip install --no-cache-dir \
+# Install packages OCR langsung (tanpa venv, Docker sudah isolated)
+RUN pip3 install --no-cache-dir --break-system-packages \
     easyocr \
     Pillow \
     opencv-python-headless
@@ -49,11 +47,10 @@ RUN mkdir -p /var/www/html/uploads \
     && chown -R www-data:www-data /var/www/html \
     && chmod -R 755 /var/www/html/uploads
 
-# Symlink Python OCR agar bisa dipanggil sebagai 'python' (SETELAH copy)
-RUN ln -sf /opt/ocr-venv/bin/python3 /usr/local/bin/python \
-    && ln -sf /opt/ocr-venv/bin/python3 /usr/local/bin/python3
+# Symlink agar 'python' = python3
+RUN ln -sf /usr/bin/python3 /usr/local/bin/python
 
-# Verifikasi instalasi
-RUN /usr/local/bin/python -c "import cv2; import easyocr; import numpy; print('OCR deps OK:', cv2.__version__)"
+# Verifikasi: build GAGAL kalau OCR deps tidak ada
+RUN python -c "import cv2; import easyocr; import numpy; print('✅ OCR deps OK:', cv2.__version__)"
 
 EXPOSE 80
