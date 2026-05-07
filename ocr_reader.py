@@ -2,10 +2,6 @@
 SmartWeight IoT - OCR Reader (EasyOCR + OpenCV)
 Membaca angka berat dari gambar timbangan digital (7-segment display)
 
-Strategi: 
-- Deteksi display → crop → 4-5 preprocessing → EasyOCR → voting
-- Maksimal ~15 variant supaya cepat (< 30 detik)
-
 Usage: python ocr_reader.py <path_ke_gambar>
 Output: JSON {"success": true/false, "weight": 65.0}
 """
@@ -18,29 +14,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-class SafeEncoder(json.JSONEncoder):
-    """JSON encoder yang bisa handle numpy types"""
-    def default(self, obj):
-        try:
-            import numpy as np
-            if isinstance(obj, (np.integer,)):
-                return int(obj)
-            if isinstance(obj, (np.floating,)):
-                return float(obj)
-            if isinstance(obj, np.ndarray):
-                return obj.tolist()
-            if isinstance(obj, np.bool_):
-                return bool(obj)
-        except ImportError:
-            pass
-        return super().default(obj)
-
-
 def detect_display(img):
-    """
-    Deteksi area display timbangan. Return list of (label, cropped_img).
-    Hanya return 2-3 crop terbaik supaya cepat.
-    """
     import cv2
     import numpy as np
 
@@ -49,22 +23,15 @@ def detect_display(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     mean_bright = np.mean(gray)
 
-    # --- Strategi 1: Gambar sudah close-up display (>50% area gelap, angka terang) ---
     if mean_bright < 120:
-        # Langsung pakai full image sebagai display
         results.append(("closeup", img))
-        
-        # Juga crop sedikit border hitam
         margin_y = int(h * 0.05)
         margin_x = int(w * 0.03)
         cropped = img[margin_y:h-margin_y, margin_x:int(w*0.82)]
         results.append(("closeup_trim", cropped))
         return results
 
-    # --- Strategi 2: Cari area display dari gambar lebih luas ---
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    
-    # Display biru
     blue_mask = cv2.inRange(hsv, np.array([90, 30, 30]), np.array([140, 255, 255]))
     blue_mask = cv2.morphologyEx(blue_mask, cv2.MORPH_CLOSE,
                                   cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15)))
@@ -76,7 +43,6 @@ def detect_display(img):
             crop = img[max(0,y-pad):min(h,y+ch+pad), max(0,x-pad):min(w,x+cw+pad)]
             results.append(("blue", crop))
 
-    # Display gelap (dark rectangle)
     _, dark_thresh = cv2.threshold(cv2.GaussianBlur(gray, (5,5), 0), 80, 255, cv2.THRESH_BINARY_INV)
     dark_closed = cv2.morphologyEx(dark_thresh, cv2.MORPH_CLOSE,
                                     cv2.getStructuringElement(cv2.MORPH_RECT, (25, 25)))
@@ -89,7 +55,6 @@ def detect_display(img):
                 crop = img[max(0,y-pad):min(h,y+ch+pad), max(0,x-pad):min(w,x+cw+pad)]
                 results.append(("dark", crop))
 
-    # Fallback: full image
     if not results:
         results.append(("full", img))
 
@@ -97,9 +62,6 @@ def detect_display(img):
 
 
 def make_variants(display_img):
-    """
-    Buat 5 versi preprocessing saja (cukup untuk voting, tetap cepat).
-    """
     import cv2
     import numpy as np
 
@@ -109,15 +71,13 @@ def make_variants(display_img):
         return results
 
     clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
-    scale = 3  # Upscale 3x
+    scale = 3
 
-    # V1: Original upscaled (color)
     big = cv2.resize(display_img, (dw * 2, dh * 2), interpolation=cv2.INTER_CUBIC)
     results.append(("color_2x", big))
 
     gray = cv2.cvtColor(display_img, cv2.COLOR_BGR2GRAY)
 
-    # V2: OTSU threshold (paling umum berhasil)
     gray_cl = clahe.apply(gray)
     _, otsu = cv2.threshold(gray_cl, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     otsu_big = cv2.resize(otsu, (dw * scale, dh * scale), interpolation=cv2.INTER_CUBIC)
@@ -125,14 +85,12 @@ def make_variants(display_img):
     otsu_big = cv2.copyMakeBorder(otsu_big, 15, 15, 15, 15, cv2.BORDER_CONSTANT, value=0)
     results.append(("otsu", otsu_big))
 
-    # V3: Inverted OTSU (kadang EasyOCR lebih suka teks gelap di bg terang)
     inv = cv2.bitwise_not(otsu)
     inv_big = cv2.resize(inv, (dw * scale, dh * scale), interpolation=cv2.INTER_CUBIC)
     _, inv_big = cv2.threshold(inv_big, 127, 255, cv2.THRESH_BINARY)
     inv_big = cv2.copyMakeBorder(inv_big, 15, 15, 15, 15, cv2.BORDER_CONSTANT, value=255)
     results.append(("inverted", inv_big))
 
-    # V4: Adaptive threshold
     adaptive = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                       cv2.THRESH_BINARY, 31, -8)
     adapt_big = cv2.resize(adaptive, (dw * scale, dh * scale), interpolation=cv2.INTER_CUBIC)
@@ -140,10 +98,8 @@ def make_variants(display_img):
     adapt_big = cv2.copyMakeBorder(adapt_big, 15, 15, 15, 15, cv2.BORDER_CONSTANT, value=0)
     results.append(("adaptive", adapt_big))
 
-    # V5: High brightness threshold (khusus angka putih terang)
     _, bright = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
-    # Morphological cleanup
-    bright = cv2.morphologyEx(bright, cv2.MORPH_CLOSE, 
+    bright = cv2.morphologyEx(bright, cv2.MORPH_CLOSE,
                                cv2.getStructuringElement(cv2.MORPH_RECT, (3,3)))
     bright_big = cv2.resize(bright, (dw * scale, dh * scale), interpolation=cv2.INTER_CUBIC)
     _, bright_big = cv2.threshold(bright_big, 127, 255, cv2.THRESH_BINARY)
@@ -154,32 +110,21 @@ def make_variants(display_img):
 
 
 def parse_weight(text):
-    """
-    Parse angka berat dari teks OCR.
-    Handle kebiasaan 7-segment: O→0, l→1, S→5, dll.
-    """
     cleaned = text.strip().replace(',', '.').replace(' ', '')
-    
-    # Substitusi karakter mirip 7-segment
     for old, new in [('O', '0'), ('o', '0'), ('Q', '0'), ('D', '0'),
                      ('l', '1'), ('I', '1'), ('|', '1'), ('!', '1'),
-                     ('Z', '2'), ('z', '2'),
-                     ('E', '3'),
+                     ('Z', '2'), ('z', '2'), ('E', '3'),
                      ('H', '4'), ('h', '4'), ('Y', '4'), ('A', '4'),
-                     ('S', '5'), ('s', '5'),
-                     ('G', '6'), ('C', '6'),
-                     ('T', '7'),
-                     ('B', '8'), ('b', '8'),
+                     ('S', '5'), ('s', '5'), ('G', '6'), ('C', '6'),
+                     ('T', '7'), ('B', '8'), ('b', '8'),
                      ('g', '9'), ('q', '9'), ('P', '9'),
                      ('U', '0'), ('n', '0')]:
         cleaned = cleaned.replace(old, new)
-    
     cleaned = re.sub(r'[^\d.]', '', cleaned)
 
     if not cleaned or len(cleaned) < 2:
         return None
 
-    # Sudah ada titik desimal
     if '.' in cleaned:
         parts = [p for p in cleaned.split('.') if p]
         if len(parts) >= 2:
@@ -191,14 +136,11 @@ def parse_weight(text):
                 except ValueError:
                     pass
 
-    # Hanya digit — coba sisipkan titik desimal
     digits = re.sub(r'[^\d]', '', cleaned)
     if not digits or len(digits) < 2:
         return None
 
     candidates = []
-
-    # Langsung sebagai angka
     try:
         direct = float(digits)
         if 20 <= direct <= 250:
@@ -206,16 +148,14 @@ def parse_weight(text):
     except ValueError:
         pass
 
-    # Khusus 4 digit: paling umum format XX.XX (berat badan)
     if len(digits) == 4:
         try:
             val = float(digits[:2] + '.' + digits[2:])
             if 5 <= val <= 250:
-                candidates.append((val, 20))  # Prioritas tertinggi
+                candidates.append((val, 20))
         except ValueError:
             pass
 
-    # Sisipkan titik di berbagai posisi
     for i in range(1, min(len(digits), 4)):
         dec = digits[i:i + 2]
         if not dec:
@@ -231,43 +171,42 @@ def parse_weight(text):
     if candidates:
         candidates.sort(key=lambda x: (-x[1], abs(x[0] - 60)))
         return candidates[0][0]
-
     return None
 
 
 def read_weight(image_path):
-    """Baca angka berat dari gambar timbangan menggunakan EasyOCR"""
     try:
         import cv2
         import easyocr
 
         img = cv2.imread(image_path)
         if img is None:
-            return {"success": False, "weight": None,
-                    "message": "Gagal membaca gambar"}
+            return {"success": False, "weight": None, "message": "Gagal membaca gambar"}
 
         h, w = img.shape[:2]
-        sys.stderr.write(f"[OCR] Image: {w}x{h}\n")
+        sys.stderr.write("[OCR] Image: %dx%d\n" % (w, h))
 
-        # Step 1: Deteksi area display (max 2-3 region)
         displays = detect_display(img)
-        sys.stderr.write(f"[OCR] Displays: {[d[0] for d in displays]}\n")
+        sys.stderr.write("[OCR] Displays: %s\n" % str([d[0] for d in displays]))
 
-        # Step 2: Buat preprocessing variants (5 per display = ~10-15 total)
         all_variants = []
         for dlabel, dimg in displays:
             for vlabel, vimg in make_variants(dimg):
-                all_variants.append((f"{dlabel}/{vlabel}", vimg))
+                all_variants.append(("%s/%s" % (dlabel, vlabel), vimg))
 
-        sys.stderr.write(f"[OCR] Total variants: {len(all_variants)}\n")
+        sys.stderr.write("[OCR] Total variants: %d\n" % len(all_variants))
 
-        # Step 3: Jalankan EasyOCR
         reader = easyocr.Reader(['en'], gpu=False, verbose=False)
 
-        all_texts = []
-        weight_votes = {}
+        best_weight = None
+        best_conf = 0.0
+        best_source = ""
 
         for label, variant in all_variants:
+            # Early stop jika sudah dapat match bagus
+            if best_weight is not None and best_conf > 0.4:
+                break
+
             try:
                 results = reader.readtext(
                     variant, detail=1, paragraph=False,
@@ -276,96 +215,48 @@ def read_weight(image_path):
                     mag_ratio=1.5,
                 )
             except Exception:
-                try:
-                    results = reader.readtext(variant, detail=1, paragraph=False)
-                except Exception:
-                    continue
+                continue
 
             for (bbox, text, conf) in results:
-                text = text.strip()
+                text = str(text).strip()
                 if not text or len(text) < 2:
                     continue
 
-                all_texts.append({
-                    "source": label, "text": text,
-                    "confidence": float(round(conf, 3))
-                })
-
                 w_val = parse_weight(text)
-                if w_val is not None:
-                    key = float(round(w_val, 1))
-                    weight_votes.setdefault(key, []).append(float(conf))
-                    sys.stderr.write(f"[OCR] '{text}' -> {w_val} kg ({label}, conf:{conf:.2f})\n")
+                if w_val is not None and 10 <= w_val <= 200:
+                    sys.stderr.write("[OCR] '%s' -> %.2f kg (%s, conf:%.2f)\n" % (text, w_val, label, float(conf)))
+                    if float(conf) > best_conf:
+                        best_weight = float(round(w_val, 2))
+                        best_conf = float(conf)
+                        best_source = label
 
-        # Step 4: Voting — pilih berat dengan vote terbanyak × confidence
-        if weight_votes:
-            best_w = max(weight_votes,
-                         key=lambda k: len(weight_votes[k]) * (
-                             sum(weight_votes[k]) / len(weight_votes[k])
-                             + 0.05 * len(weight_votes[k])))
-            confs = weight_votes[best_w]
-            avg_conf = sum(confs) / len(confs)
-
-            sys.stderr.write(f"[OCR] RESULT: {best_w} kg (votes:{len(confs)}, conf:{avg_conf:.2f})\n")
-
-            return {
+        if best_weight is not None:
+            result = {
                 "success": True,
-                "weight": float(best_w),
-                "confidence": float(round(min(avg_conf, 1.0), 3)),
-                "votes": int(len(confs)),
-                "all_candidates": {str(float(k)): int(len(v))
-                                   for k, v in sorted(weight_votes.items(),
-                                                      key=lambda x: -len(x[1]))[:5]},
-                "all_detected": all_texts[:10]
+                "weight": best_weight,
+                "confidence": round(best_conf, 3),
+                "source": best_source
             }
+            sys.stderr.write("[OCR] RESULT: %.2f kg (conf:%.3f)\n" % (best_weight, best_conf))
+            return result
 
-        # Fallback: gabungkan teks per sumber
-        by_src = {}
-        for item in all_texts:
-            src = item["source"].split("/")[0]
-            by_src.setdefault(src, "")
-            by_src[src] += item["text"]
+        return {"success": False, "weight": None, "message": "Tidak bisa membaca angka berat"}
 
-        for src, combined in by_src.items():
-            w_val = parse_weight(combined)
-            if w_val is not None:
-                return {
-                    "success": True,
-                    "weight": round(w_val, 2),
-                    "confidence": 0.3,
-                    "all_detected": all_texts[:10]
-                }
-
-        return {
-            "success": False, "weight": None,
-            "message": "Tidak bisa membaca angka berat dari display",
-            "all_detected": all_texts[:10]
-        }
-
-    except ImportError:
-        return {"success": False, "weight": None,
-                "message": "EasyOCR belum terinstall (pip install easyocr)"}
     except Exception as e:
         return {"success": False, "weight": None, "message": str(e)}
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print(json.dumps({"success": False,
-                           "message": "Usage: python ocr_reader.py <image_path>"}))
-        sys.exit(1)
+        r = {"success": False, "message": "Usage: python ocr_reader.py <image>"}
+    elif not os.path.exists(sys.argv[1]):
+        r = {"success": False, "message": "File tidak ditemukan: " + sys.argv[1]}
+    else:
+        r = read_weight(sys.argv[1])
 
-    image_path = sys.argv[1]
-    if not os.path.exists(image_path):
-        print(json.dumps({"success": False,
-                           "message": f"File tidak ditemukan: {image_path}"}))
-        sys.exit(1)
-
-    try:
-        result = read_weight(image_path)
-        output = json.dumps(result, cls=SafeEncoder)
-        print(output)
-        sys.stdout.flush()
-    except Exception as e:
-        print(json.dumps({"success": False, "message": f"JSON error: {str(e)}"}))
-        sys.stdout.flush()
+    # Output JSON - tulis ke stderr DAN stdout
+    out = json.dumps(r)
+    sys.stderr.write("[RESULT] " + out + "\n")
+    sys.stderr.flush()
+    sys.stdout.write(out + "\n")
+    sys.stdout.flush()

@@ -245,13 +245,19 @@ function runOCR($imagePath) {
         
         if ($output) {
             // Parse JSON dari output Python
-            // Cari baris JSON (mulai dari akhir, skip stderr debug)
+            // Cari baris JSON dari akhir: langsung '{' atau setelah '[RESULT] '
             $lines = explode("\n", trim($output));
             $jsonLine = null;
             for ($i = count($lines) - 1; $i >= 0; $i--) {
                 $trimmed = trim($lines[$i]);
+                // Cek langsung dimulai dengan {
                 if (strpos($trimmed, '{') === 0) {
                     $jsonLine = $trimmed;
+                    break;
+                }
+                // Cek format [RESULT] {...} dari stderr
+                if (strpos($trimmed, '[RESULT] {') !== false) {
+                    $jsonLine = substr($trimmed, strpos($trimmed, '{'));
                     break;
                 }
             }
