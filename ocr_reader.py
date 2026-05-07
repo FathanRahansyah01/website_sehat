@@ -18,6 +18,24 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
+class SafeEncoder(json.JSONEncoder):
+    """JSON encoder yang bisa handle numpy types"""
+    def default(self, obj):
+        try:
+            import numpy as np
+            if isinstance(obj, (np.integer,)):
+                return int(obj)
+            if isinstance(obj, (np.floating,)):
+                return float(obj)
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            if isinstance(obj, np.bool_):
+                return bool(obj)
+        except ImportError:
+            pass
+        return super().default(obj)
+
+
 def detect_display(img):
     """
     Deteksi area display timbangan. Return list of (label, cropped_img).
@@ -343,5 +361,11 @@ if __name__ == "__main__":
                            "message": f"File tidak ditemukan: {image_path}"}))
         sys.exit(1)
 
-    result = read_weight(image_path)
-    print(json.dumps(result))
+    try:
+        result = read_weight(image_path)
+        output = json.dumps(result, cls=SafeEncoder)
+        print(output)
+        sys.stdout.flush()
+    except Exception as e:
+        print(json.dumps({"success": False, "message": f"JSON error: {str(e)}"}))
+        sys.stdout.flush()
