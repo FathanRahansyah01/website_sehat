@@ -505,24 +505,72 @@ void handleFlash() {
 }
 
 // =============================================
-// Send Image
+// Send Image (dengan retry & WiFi recovery)
 // =============================================
-String sendImage(uint8_t *data, size_t len) {
-    HTTPClient http;
-    Serial.printf("📡 Mengirim %d bytes ke %s ...\n", len, serverURL);
-    http.begin(serverURL);
-    http.addHeader("Content-Type", "image/jpeg");
-    http.setTimeout(90000);  // 90 detik (EasyOCR lambat pertama kali load model)
-
-    int code = http.POST(data, len);
-    String resp = "";
-    if (code > 0) {
-        resp = http.getString();
-        Serial.printf("✅ HTTP %d | %s\n", code, resp.substring(0, 150).c_str());
-    } else {
-        resp = "{\"success\":false,\"message\":\"" + http.errorToString(code) + "\"}";
-        Serial.printf("❌ GAGAL! Code:%d | %s\n", code, http.errorToString(code).c_str());
+void ensureWiFi() {
+    if (WiFi.status() == WL_CONNECTED) return;
+    Serial.println("⚠️ WiFi terputus, reconnecting...");
+    WiFi.disconnect();
+    delay(500);
+    WiFi.begin(ssid, password);
+    int att = 0;
+    while (WiFi.status() != WL_CONNECTED && att < 20) {
+        delay(500);
+        Serial.print(".");
+        att++;
     }
-    http.end();
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.printf("\n✅ WiFi reconnected: %s\n", WiFi.localIP().toString().c_str());
+    } else {
+        Serial.println("\n❌ WiFi reconnect gagal!");
+    }
+}
+
+String sendImage(uint8_t *data, size_t len) {
+    const int MAX_RETRIES = 3;
+    String resp = "";
+
+    // Delay agar WiFi stabil setelah kamera capture
+    Serial.println("⏳ Menunggu WiFi stabil...");
+    delay(1000);
+
+    for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        // Pastikan WiFi masih konek
+        ensureWiFi();
+        if (WiFi.status() != WL_CONNECTED) {
+            Serial.println("❌ WiFi tidak tersedia, skip pengiriman");
+            return "{\"success\":false,\"message\":\"WiFi disconnected\"}";
+        }
+
+        Serial.printf("📡 [Attempt %d/%d] Mengirim %d bytes ke %s ...\n", attempt, MAX_RETRIES, len, serverURL);
+        Serial.printf("   Free heap: %d bytes\n", ESP.getFreeHeap());
+
+        HTTPClient http;
+        http.begin(serverURL);
+        http.addHeader("Content-Type", "image/jpeg");
+        http.addHeader("Connection", "close");
+        http.setTimeout(90000);  // 90 detik (EasyOCR lambat pertama kali load model)
+
+        int code = http.POST(data, len);
+
+        if (code > 0) {
+            resp = http.getString();
+            Serial.printf("✅ HTTP %d | %s\n", code, resp.substring(0, 150).c_str());
+            http.end();
+            return resp;  // Berhasil, langsung return
+        } else {
+            resp = "{\"success\":false,\"message\":\"" + http.errorToString(code) + "\"}";
+            Serial.printf("❌ Attempt %d GAGAL! Code:%d | %s\n", attempt, code, http.errorToString(code).c_str());
+            http.end();
+
+            if (attempt < MAX_RETRIES) {
+                int waitTime = attempt * 2000;  // 2s, 4s
+                Serial.printf("⏳ Retry dalam %d ms...\n", waitTime);
+                delay(waitTime);
+            }
+        }
+    }
+
+    Serial.println("❌ Semua attempt gagal!");
     return resp;
 }
