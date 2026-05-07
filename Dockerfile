@@ -10,12 +10,11 @@ RUN docker-php-ext-install mysqli pdo pdo_mysql
 RUN echo "date.timezone = Asia/Jakarta" > /usr/local/etc/php/conf.d/timezone.ini
 ENV TZ=Asia/Jakarta
 
-# Install Python + dependensi OCR + Tesseract (fallback)
+# Install Python + dependensi OCR
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     python3-venv \
-    tesseract-ocr \
     libgl1 \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
@@ -24,7 +23,8 @@ RUN apt-get update && apt-get install -y \
 RUN python3 -m venv /opt/ocr-venv
 RUN /opt/ocr-venv/bin/pip install --no-cache-dir \
     easyocr \
-    Pillow
+    Pillow \
+    opencv-python-headless
 
 # Enable Apache mod_rewrite
 RUN a2enmod rewrite
