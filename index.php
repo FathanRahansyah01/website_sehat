@@ -232,7 +232,16 @@ function runOCR($imagePath) {
     $pythonScript = __DIR__ . '/ocr_reader.py';
     
     if (file_exists($pythonScript)) {
-        $cmd = 'python "' . $pythonScript . '" "' . $imagePath . '" 2>&1';
+        // Cari Python executable (venv Docker atau system)
+        $pythonBin = '/usr/local/bin/python';
+        if (!file_exists($pythonBin)) {
+            $pythonBin = '/opt/ocr-venv/bin/python3';
+        }
+        if (!file_exists($pythonBin)) {
+            $pythonBin = 'python3';
+        }
+        $cmd = $pythonBin . ' "' . $pythonScript . '" "' . $imagePath . '" 2>&1';
+        error_log("OCR command: " . $cmd);
         $output = shell_exec($cmd);
         
         error_log("EasyOCR raw output: " . substr($output, 0, 500));
