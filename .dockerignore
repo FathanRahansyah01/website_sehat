@@ -46,9 +46,8 @@ Thumbs.db
 .env.local
 .env.example
 
-# Database files
-Database/
-*.sql
+# SQL migration files (init.sql tetap di docker/)
+Database/*.sql
 
 # Test files
 test_*.py
