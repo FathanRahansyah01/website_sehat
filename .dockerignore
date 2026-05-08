@@ -1,27 +1,58 @@
+# =============================================
+# .dockerignore - Exclude dari Docker build context
+# Semakin banyak exclude = build lebih cepat + image lebih kecil
+# =============================================
+
 # Version control
 .git
 .gitignore
 .gitattributes
 
-# Python virtual environment
+# Python local
 .venv
+__pycache__
+*.pyc
 
-# Firmware ESP32 (tidak perlu di container)
+# Firmware ESP32 (tidak perlu di server)
 esp32cam_weight/
 
-# Upload files (pakai Docker volume)
+# Upload files (pakai Docker volume, bukan baked in image)
 uploads/*
 !uploads/.gitkeep
+
+# Docker files sendiri
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Docker config folder
+docker/
 
 # Documentation
 *.md
 README*
+LICENSE
 
-# IDE / OS files
-.vscode
-.idea
+# IDE / OS
+.vscode/
+.idea/
 *.DS_Store
 Thumbs.db
+*.swp
+*.swo
 
-# Environment secrets (jangan di-copy ke image)
+# Environment secrets
 .env
+.env.local
+.env.example
+
+# Database files
+Database/
+*.sql
+
+# Test files
+test_*.py
+
+# Temporary / logs
+*.log
+*.tmp

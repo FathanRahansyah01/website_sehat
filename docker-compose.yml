@@ -1,11 +1,14 @@
 # =============================================
-# SmartWeight IoT - Docker Compose
+# SmartWeight IoT - Docker Compose (Optimized)
 # =============================================
 
 services:
   # --- Web App (PHP + Apache + Python OCR) ---
   web:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: smartweight-web:latest
     container_name: smartweight-web
     ports:
       - "${WEB_PORT:-8080}:80"
