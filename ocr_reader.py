@@ -353,38 +353,78 @@ def read_weight(image_path):
 
             scored.sort(key=lambda x: -x[1])
             best = scored[0]
+            best_conf = float(best[3])
 
-            log("RESULT: %.2f kg (votes:%d, conf:%.3f)" % (best[0], best[2], best[3]))
+            # Determine status: success (conf >= 0.5) or partial (conf < 0.5)
+            if best_conf >= 0.5:
+                status = "success"
+            else:
+                status = "partial"
 
-            # Cleanup before returning
+            log("RESULT: %.2f kg (status:%s, votes:%d, conf:%.3f)" % (best[0], status, best[2], best_conf))
+
             del reader, display
             gc.collect()
 
             return {
                 "success": True,
                 "weight": float(best[0]),
-                "confidence": round(float(best[3]), 3),
+                "confidence": round(best_conf, 3),
                 "votes": int(best[2]),
                 "source": str(best[4]),
+                "ocr_status": status,
             }
+
+        # Step 5: Fallback — coba gabung semua raw text
+        all_raw_texts = []
+        for vname in variant_names:
+            if vname not in ["color", "otsu"]:
+                continue
+            try:
+                ocr_results = process_variant(display, vname, reader)
+                for text, conf in ocr_results:
+                    all_raw_texts.append(text)
+            except Exception:
+                pass
+
+        combined = ' '.join(all_raw_texts)
+        if combined:
+            w_val = parse_weight(combined)
+            if w_val is not None:
+                log("Fallback: %.2f kg from combined text" % w_val)
+                del reader, display
+                gc.collect()
+                return {
+                    "success": True,
+                    "weight": float(round(w_val, 2)),
+                    "confidence": 0.1,
+                    "votes": 1,
+                    "source": "fallback",
+                    "ocr_status": "partial",
+                }
 
         # Cleanup
         del reader, display
         gc.collect()
 
-        return {"success": False, "weight": None, "message": "Tidak bisa membaca angka berat"}
+        return {
+            "success": False,
+            "weight": None,
+            "message": "Tidak bisa membaca angka berat",
+            "ocr_status": "failed",
+        }
 
     except Exception as e:
         gc.collect()
         log("ERROR: %s" % str(e))
-        return {"success": False, "weight": None, "message": str(e)}
+        return {"success": False, "weight": None, "message": str(e), "ocr_status": "failed"}
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        r = {"success": False, "message": "Usage: python ocr_reader.py <image>"}
+        r = {"success": False, "message": "Usage: python ocr_reader.py <image>", "ocr_status": "failed"}
     elif not os.path.exists(sys.argv[1]):
-        r = {"success": False, "message": "File tidak ditemukan: " + sys.argv[1]}
+        r = {"success": False, "message": "File tidak ditemukan: " + sys.argv[1], "ocr_status": "failed"}
     else:
         r = read_weight(sys.argv[1])
 
@@ -393,3 +433,4 @@ if __name__ == "__main__":
     sys.stderr.flush()
     sys.stdout.write(out + "\n")
     sys.stdout.flush()
+

@@ -103,10 +103,7 @@ function handleRawImageUpload($conn, $contentType) {
         return;
     }
 
-    // Tentukan ekstensi
     $ext = (strpos($contentType, 'png') !== false) ? 'png' : 'jpg';
-
-    // Simpan gambar
     $filename = 'weight_' . date('Ymd_His') . '_' . uniqid() . '.' . $ext;
     $filepath = UPLOAD_DIR . $filename;
 
@@ -115,38 +112,37 @@ function handleRawImageUpload($conn, $contentType) {
     }
 
     file_put_contents($filepath, $imageData);
+    $imagePath = 'uploads/' . $filename;
 
-    // Jalankan OCR
-    $weight = runOCR($filepath);
+    // Jalankan OCR — hasilnya array {weight, confidence, ocr_status}
+    $ocrResult = runOCR($filepath);
+    $weight = $ocrResult['weight'];
+    $ocrStatus = $ocrResult['ocr_status'];
+    $confidence = $ocrResult['confidence'];
 
-    if ($weight !== null) {
-        // Simpan ke database (ocr_weight = weight awal)
-        $imagePath = 'uploads/' . $filename;
-        saveWeight($conn, $weight, $imagePath, $weight);
+    // SELALU simpan ke database — apapun hasil OCR
+    saveWeight($conn, $weight, $imagePath, $weight, $ocrStatus);
 
-        echo json_encode([
-            'success' => true,
-            'message' => 'Gambar diterima, OCR berhasil',
-            'data' => [
-                'weight_kg' => $weight,
-                'image_path' => $imagePath,
-                'ocr_status' => 'success'
-            ]
-        ]);
+    // Response: selalu success karena gambar tersimpan
+    $message = 'Gambar diterima';
+    if ($ocrStatus === 'success') {
+        $message .= ', OCR berhasil: ' . $weight . ' kg';
+    } elseif ($ocrStatus === 'partial') {
+        $message .= ', OCR parsial: ' . $weight . ' kg (confidence rendah, bisa dikoreksi manual)';
     } else {
-        // OCR gagal, simpan gambar tapi tanpa berat
-        $imagePath = 'uploads/' . $filename;
-
-        echo json_encode([
-            'success' => false,
-            'message' => 'Gambar disimpan, tapi OCR gagal membaca angka berat',
-            'data' => [
-                'image_path' => $imagePath,
-                'ocr_status' => 'failed',
-                'tip' => 'Pastikan gambar fokus pada angka timbangan'
-            ]
-        ]);
+        $message .= ', OCR gagal membaca angka (bisa input manual)';
     }
+
+    echo json_encode([
+        'success' => true,
+        'message' => $message,
+        'data' => [
+            'weight_kg' => $weight,
+            'image_path' => $imagePath,
+            'ocr_status' => $ocrStatus,
+            'confidence' => $confidence
+        ]
+    ]);
 }
 
 /**
@@ -162,14 +158,12 @@ function handleImageUpload($conn) {
 
     $file = $_FILES['image'];
 
-    // Validasi ukuran
     if ($file['size'] > MAX_FILE_SIZE) {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => 'Ukuran file melebihi 5MB']);
         return;
     }
 
-    // Validasi tipe file
     $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
     if (!in_array($ext, ALLOWED_EXTENSIONS)) {
         http_response_code(400);
@@ -177,7 +171,6 @@ function handleImageUpload($conn) {
         return;
     }
 
-    // Simpan file
     $filename = 'weight_' . date('Ymd_His') . '_' . uniqid() . '.' . $ext;
     $filepath = UPLOAD_DIR . $filename;
 
@@ -191,106 +184,115 @@ function handleImageUpload($conn) {
         return;
     }
 
-    // Jalankan OCR
-    $weight = runOCR($filepath);
+    $imagePath = 'uploads/' . $filename;
+    $ocrResult = runOCR($filepath);
+    $weight = $ocrResult['weight'];
+    $ocrStatus = $ocrResult['ocr_status'];
 
-    if ($weight !== null) {
-        $imagePath = 'uploads/' . $filename;
-        saveWeight($conn, $weight, $imagePath);
+    // SELALU simpan ke database
+    saveWeight($conn, $weight, $imagePath, $weight, $ocrStatus);
 
-        echo json_encode([
-            'success' => true,
-            'message' => 'Gambar diterima, OCR berhasil',
-            'data' => [
-                'weight_kg' => $weight,
-                'image_path' => $imagePath,
-                'ocr_status' => 'success'
-            ]
-        ]);
-    } else {
-        $imagePath = 'uploads/' . $filename;
+    $message = ($ocrStatus === 'success') ? 'OCR berhasil: ' . $weight . ' kg' :
+               (($ocrStatus === 'partial') ? 'OCR parsial: ' . $weight . ' kg' : 'OCR gagal, input manual diperlukan');
 
-        echo json_encode([
-            'success' => false,
-            'message' => 'Gambar disimpan, tapi OCR gagal membaca angka',
-            'data' => [
-                'image_path' => $imagePath,
-                'ocr_status' => 'failed',
-                'tip' => 'Pastikan gambar fokus pada angka timbangan'
-            ]
-        ]);
-    }
+    echo json_encode([
+        'success' => true,
+        'message' => $message,
+        'data' => [
+            'weight_kg' => $weight,
+            'image_path' => $imagePath,
+            'ocr_status' => $ocrStatus
+        ]
+    ]);
 }
 
 /**
  * Jalankan OCR menggunakan EasyOCR (Python)
- * Fallback ke Tesseract jika Python gagal
- * @return float|null Berat yang terbaca, atau null jika gagal
+ * @return array ['weight' => float|null, 'confidence' => float, 'ocr_status' => 'success'|'partial'|'failed']
  */
 function runOCR($imagePath) {
-    // --- Metode 1: EasyOCR via Python (lebih akurat) ---
     $pythonScript = __DIR__ . '/ocr_reader.py';
+    $defaultResult = ['weight' => null, 'confidence' => 0, 'ocr_status' => 'failed'];
     
-    if (file_exists($pythonScript)) {
-        // Python: coba python3 dulu (Linux/Docker), fallback ke python (Windows/symlink)
-        $pythonBin = 'python3';
-        if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-            $pythonBin = 'python';
+    if (!file_exists($pythonScript)) {
+        error_log("OCR script not found: " . $pythonScript);
+        return $defaultResult;
+    }
+
+    $pythonBin = 'python3';
+    if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+        $pythonBin = 'python';
+    }
+    $cmd = $pythonBin . ' "' . $pythonScript . '" "' . $imagePath . '" 2>&1';
+    error_log("OCR command: " . $cmd);
+    $output = shell_exec($cmd);
+    
+    error_log("OCR raw output: " . substr($output ?? '', 0, 500));
+    
+    if (!$output) {
+        error_log("OCR: no output from Python");
+        return $defaultResult;
+    }
+
+    // Cari JSON dari output (scan dari akhir)
+    $lines = explode("\n", trim($output));
+    $jsonLine = null;
+    for ($i = count($lines) - 1; $i >= 0; $i--) {
+        $trimmed = trim($lines[$i]);
+        if (strpos($trimmed, '{') === 0) {
+            $jsonLine = $trimmed;
+            break;
         }
-        $cmd = $pythonBin . ' "' . $pythonScript . '" "' . $imagePath . '" 2>&1';
-        error_log("OCR command: " . $cmd);
-        $output = shell_exec($cmd);
-        
-        error_log("EasyOCR raw output: " . substr($output, 0, 500));
-        
-        if ($output) {
-            // Parse JSON dari output Python
-            // Cari baris JSON dari akhir: langsung '{' atau setelah '[RESULT] '
-            $lines = explode("\n", trim($output));
-            $jsonLine = null;
-            for ($i = count($lines) - 1; $i >= 0; $i--) {
-                $trimmed = trim($lines[$i]);
-                // Cek langsung dimulai dengan {
-                if (strpos($trimmed, '{') === 0) {
-                    $jsonLine = $trimmed;
-                    break;
-                }
-                // Cek format [RESULT] {...} dari stderr
-                if (strpos($trimmed, '[RESULT] {') !== false) {
-                    $jsonLine = substr($trimmed, strpos($trimmed, '{'));
-                    break;
-                }
-            }
-            
-            if ($jsonLine) {
-                $result = json_decode($jsonLine, true);
-                
-                if ($result && isset($result['success']) && $result['success'] && isset($result['weight'])) {
-                    $weight = floatval($result['weight']);
-                    if ($weight >= 5 && $weight <= 300) {
-                        error_log("EasyOCR berhasil: {$weight} kg (conf: " . ($result['confidence'] ?? '?') . ", votes: " . ($result['votes'] ?? '?') . ")");
-                        return $weight;
-                    }
-                }
-                
-                error_log("EasyOCR result JSON: " . $jsonLine);
-            }
+        if (strpos($trimmed, '[RESULT] {') !== false) {
+            $jsonLine = substr($trimmed, strpos($trimmed, '{'));
+            break;
         }
-        
-        error_log("EasyOCR gagal membaca berat dari gambar");
     }
     
-    return null;
+    if (!$jsonLine) {
+        error_log("OCR: no JSON found in output");
+        return $defaultResult;
+    }
+
+    $result = json_decode($jsonLine, true);
+    if (!$result) {
+        error_log("OCR: JSON decode failed: " . $jsonLine);
+        return $defaultResult;
+    }
+
+    $weight = isset($result['weight']) ? floatval($result['weight']) : null;
+    $confidence = isset($result['confidence']) ? floatval($result['confidence']) : 0;
+    $ocrStatus = isset($result['ocr_status']) ? $result['ocr_status'] : 'failed';
+
+    // Validasi weight masuk akal (sangat permisif: 1-500 kg)
+    if ($weight !== null && ($weight < 1 || $weight > 500)) {
+        error_log("OCR: weight out of range: " . $weight);
+        $weight = null;
+        $ocrStatus = 'failed';
+    }
+
+    error_log("OCR result: weight=" . ($weight ?? 'null') . ", status=" . $ocrStatus . ", conf=" . $confidence);
+    
+    return [
+        'weight' => $weight,
+        'confidence' => $confidence,
+        'ocr_status' => $ocrStatus
+    ];
 }
 
 /**
  * Simpan data berat ke database
+ * SELALU dipanggil — weight bisa null jika OCR gagal total
  */
-function saveWeight($conn, $weight, $imagePath = null, $ocrWeight = null) {
+function saveWeight($conn, $weight, $imagePath = null, $ocrWeight = null, $ocrStatus = 'success') {
     $stmt = $conn->prepare("INSERT INTO weight_history (weight_kg, ocr_weight, image_path) VALUES (?, ?, ?)");
-    $stmt->bind_param("dds", $weight, $ocrWeight, $imagePath);
+    // Jika weight null (OCR failed), simpan 0 sebagai placeholder
+    $weightVal = ($weight !== null) ? $weight : 0;
+    $ocrVal = ($ocrWeight !== null) ? $ocrWeight : 0;
+    $stmt->bind_param("dds", $weightVal, $ocrVal, $imagePath);
     $stmt->execute();
     $stmt->close();
+    error_log("Saved: weight=" . $weightVal . ", ocr=" . $ocrVal . ", status=" . $ocrStatus . ", image=" . $imagePath);
 }
 
 /**
