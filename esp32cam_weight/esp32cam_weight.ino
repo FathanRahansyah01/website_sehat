@@ -14,6 +14,7 @@
 #include <SPI.h>
 #include <MFRC522.h>
 #include <LiquidCrystal_I2C.h>
+#include <ArduinoJson.h>
 #include "esp_camera.h"
 
 // --- WiFi ---
@@ -382,28 +383,61 @@ void doCaptureAndSend() {
 }
 
 void showResult(String response) {
-    float weight = 0;
-    bool ok = false;
+    Serial.println("[DEBUG] Raw response (" + String(response.length()) + " chars): " + response.substring(0, 250));
 
-    int idx = response.indexOf("\"weight_kg\":");
-    if (idx == -1) idx = response.indexOf("\"weight\":");
-    if (idx != -1) {
-        int c = response.indexOf(":", idx);
-        int e = response.indexOf(",", c);
-        if (e == -1) e = response.indexOf("}", c);
-        String ws = response.substring(c + 1, e);
-        ws.trim();
-        weight = ws.toFloat();
-        if (weight >= 20 && weight <= 300) ok = true;
+    // Parse JSON dengan ArduinoJson
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, response);
+
+    if (error) {
+        Serial.println("❌ JSON parse error: " + String(error.c_str()));
+        lcdPrint("JSON Error", "Coba lagi...");
+        beep(3, 80);
+        return;
     }
 
-    if (ok) {
-        lcdPrint("Berat terbaca:", (String(weight, 1) + " kg").c_str());
-        Serial.printf("✅ %.1f kg\n", weight);
+    // Baca weight dari response: coba data.weight_kg → weight_kg → data.weight → weight
+    float weight = 0;
+    bool hasWeight = false;
+
+    if (!doc["data"]["weight_kg"].isNull() && doc["data"]["weight_kg"].as<float>() > 0) {
+        weight = doc["data"]["weight_kg"].as<float>();
+        hasWeight = true;
+    } else if (!doc["weight_kg"].isNull() && doc["weight_kg"].as<float>() > 0) {
+        weight = doc["weight_kg"].as<float>();
+        hasWeight = true;
+    } else if (!doc["data"]["weight"].isNull() && doc["data"]["weight"].as<float>() > 0) {
+        weight = doc["data"]["weight"].as<float>();
+        hasWeight = true;
+    } else if (!doc["weight"].isNull() && doc["weight"].as<float>() > 0) {
+        weight = doc["weight"].as<float>();
+        hasWeight = true;
+    }
+
+    // Baca field tambahan
+    const char* ocrStatus = doc["data"]["ocr_status"] | (doc["ocr_status"] | "unknown");
+    float confidence = doc["data"]["confidence"] | (doc["confidence"] | 0.0f);
+    bool success = doc["success"] | false;
+
+    Serial.printf("[DEBUG] Parsed: weight=%.2f, hasWeight=%d, status=%s, conf=%.3f, success=%d\n",
+                  weight, hasWeight, ocrStatus, confidence, success);
+
+    // === Tampilkan hasil ===
+    // SANGAT PERMISIF: terima weight > 0 apapun (user koreksi manual nanti)
+    if (hasWeight && weight > 0) {
+        char line2[17];
+        snprintf(line2, sizeof(line2), "%.1f kg", weight);
+        lcdPrint("Berat terbaca:", line2);
+        Serial.printf("✅ %.1f kg (status:%s, conf:%.2f)\n", weight, ocrStatus, confidence);
         beep(1, 200);
+    } else if (success) {
+        // Backend berhasil simpan gambar tapi OCR gagal baca angka
+        lcdPrint("Data tersimpan", "Input manual");
+        Serial.println("⚠️ Data tersimpan, tapi berat belum terbaca");
+        beep(2, 100);
     } else {
-        lcdPrint("OCR Gagal :(", "Coba lagi...");
-        Serial.println("❌ OCR gagal");
+        lcdPrint("Gagal :(", "Coba lagi...");
+        Serial.println("❌ Gagal total");
         beep(3, 80);
     }
 }
