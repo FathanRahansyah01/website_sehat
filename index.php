@@ -120,7 +120,10 @@ function handleRawImageUpload($conn, $contentType) {
     $ocrStatus = $ocrResult['ocr_status'];
     $confidence = $ocrResult['confidence'];
 
-    // SELALU simpan ke database — apapun hasil OCR
+    // DEBUG: log setiap value sebelum save
+    error_log("[PIPELINE] OCR returned: weight=" . var_export($weight, true) . ", status=" . $ocrStatus . ", conf=" . $confidence);
+
+    // SELALU simpan ke database
     saveWeight($conn, $weight, $imagePath, $weight, $ocrStatus);
 
     // Response: selalu success karena gambar tersimpan

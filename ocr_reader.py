@@ -355,18 +355,12 @@ def read_weight(image_path):
             best = scored[0]
             best_conf = float(best[3])
 
-            # Determine status: success (conf >= 0.5) or partial (conf < 0.5)
             if best_conf >= 0.5:
                 status = "success"
             else:
                 status = "partial"
 
-            log("RESULT: %.2f kg (status:%s, votes:%d, conf:%.3f)" % (best[0], status, best[2], best_conf))
-
-            del reader, display
-            gc.collect()
-
-            return {
+            result = {
                 "success": True,
                 "weight": float(best[0]),
                 "confidence": round(best_conf, 3),
@@ -375,62 +369,70 @@ def read_weight(image_path):
                 "ocr_status": status,
             }
 
-        # Step 5: Fallback — coba gabung semua raw text
-        all_raw_texts = []
-        for vname in variant_names:
-            if vname not in ["color", "otsu"]:
-                continue
+            # KUNCI: cetak JSON SEGERA sebelum cleanup (anti OOM-kill)
+            _emit_result(result)
+
+            log("RESULT: %.2f kg (status:%s, votes:%d, conf:%.3f)" % (best[0], status, best[2], best_conf))
+
             try:
-                ocr_results = process_variant(display, vname, reader)
-                for text, conf in ocr_results:
-                    all_raw_texts.append(text)
+                del reader, display
+                gc.collect()
             except Exception:
                 pass
 
-        combined = ' '.join(all_raw_texts)
-        if combined:
-            w_val = parse_weight(combined)
-            if w_val is not None:
-                log("Fallback: %.2f kg from combined text" % w_val)
-                del reader, display
-                gc.collect()
-                return {
-                    "success": True,
-                    "weight": float(round(w_val, 2)),
-                    "confidence": 0.1,
-                    "votes": 1,
-                    "source": "fallback",
-                    "ocr_status": "partial",
-                }
+            return result
 
-        # Cleanup
-        del reader, display
-        gc.collect()
-
-        return {
+        # Step 5: Fallback — semua weight_votes kosong
+        result = {
             "success": False,
             "weight": None,
             "message": "Tidak bisa membaca angka berat",
             "ocr_status": "failed",
         }
+        _emit_result(result)
+
+        try:
+            del reader, display
+            gc.collect()
+        except Exception:
+            pass
+
+        return result
 
     except Exception as e:
         gc.collect()
         log("ERROR: %s" % str(e))
-        return {"success": False, "weight": None, "message": str(e), "ocr_status": "failed"}
+        result = {"success": False, "weight": None, "message": str(e), "ocr_status": "failed"}
+        _emit_result(result)
+        return result
+
+
+# Flag agar _emit_result hanya cetak 1x
+_result_emitted = False
+
+def _emit_result(result):
+    """Cetak JSON ke stdout+stderr SEGERA. Dipanggil di dalam read_weight()."""
+    global _result_emitted
+    if _result_emitted:
+        return
+    _result_emitted = True
+
+    out = json.dumps(result)
+    # stderr dulu (unbuffered, pasti tercetak)
+    sys.stderr.write("[RESULT] " + out + "\n")
+    sys.stderr.flush()
+    # stdout juga
+    sys.stdout.write(out + "\n")
+    sys.stdout.flush()
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        r = {"success": False, "message": "Usage: python ocr_reader.py <image>", "ocr_status": "failed"}
+        _emit_result({"success": False, "message": "Usage: python ocr_reader.py <image>", "ocr_status": "failed"})
     elif not os.path.exists(sys.argv[1]):
-        r = {"success": False, "message": "File tidak ditemukan: " + sys.argv[1], "ocr_status": "failed"}
+        _emit_result({"success": False, "message": "File tidak ditemukan: " + sys.argv[1], "ocr_status": "failed"})
     else:
-        r = read_weight(sys.argv[1])
+        # read_weight() sudah panggil _emit_result() di dalamnya
+        read_weight(sys.argv[1])
 
-    out = json.dumps(r)
-    sys.stderr.write("[RESULT] " + out + "\n")
-    sys.stderr.flush()
-    sys.stdout.write(out + "\n")
-    sys.stdout.flush()
 
