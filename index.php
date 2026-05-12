@@ -32,9 +32,21 @@ if ($isApiRequest) {
 
     if ($method === 'POST') {
         $contentType = isset($_SERVER['CONTENT_TYPE']) ? $_SERVER['CONTENT_TYPE'] : '';
+        // Fallback: cek HTTP_CONTENT_TYPE juga (beberapa proxy/server pakai ini)
+        if (empty($contentType) && isset($_SERVER['HTTP_CONTENT_TYPE'])) {
+            $contentType = $_SERVER['HTTP_CONTENT_TYPE'];
+        }
+        
+        error_log("[ROUTING] POST received: CONTENT_TYPE='$contentType', CONTENT_LENGTH=" . ($_SERVER['CONTENT_LENGTH'] ?? '?'));
+        
         if (strpos($contentType, 'multipart/form-data') !== false || isset($_FILES['image'])) {
             handleImageUpload($conn);
-        } elseif (strpos($contentType, 'image/jpeg') !== false || strpos($contentType, 'image/png') !== false) {
+        } elseif (
+            strpos($contentType, 'image/jpeg') !== false ||
+            strpos($contentType, 'image/jpg') !== false ||
+            strpos($contentType, 'image/png') !== false ||
+            strpos($contentType, 'application/octet-stream') !== false
+        ) {
             handleRawImageUpload($conn, $contentType);
         } else {
             handlePostWeight($conn);
@@ -89,13 +101,42 @@ $conn->close();
  * ESP32 mengirim JPEG bytes langsung di body request
  */
 function handleRawImageUpload($conn, $contentType) {
+    // Debug: log semua info request
+    error_log("[UPLOAD] Content-Type: $contentType");
+    error_log("[UPLOAD] CONTENT_LENGTH header: " . ($_SERVER['CONTENT_LENGTH'] ?? 'NOT SET'));
+    
     $imageData = file_get_contents('php://input');
+    $dataLen = strlen($imageData);
+    error_log("[UPLOAD] php://input strlen: $dataLen bytes");
 
-    if (empty($imageData) || strlen($imageData) < 100) {
+    // Fallback: jika php://input kosong, coba baca dari stdin stream
+    if ($dataLen < 100) {
+        error_log("[UPLOAD] php://input kosong, coba stdin...");
+        $fp = fopen('php://input', 'rb');
+        if ($fp) {
+            $imageData = stream_get_contents($fp);
+            fclose($fp);
+            $dataLen = strlen($imageData);
+            error_log("[UPLOAD] stdin strlen: $dataLen bytes");
+        }
+    }
+
+    if (empty($imageData) || $dataLen < 100) {
         http_response_code(400);
-        echo json_encode(['success' => false, 'message' => 'Data gambar kosong atau terlalu kecil']);
+        error_log("[UPLOAD] GAGAL: data kosong ($dataLen bytes). Headers: " . json_encode(getallheaders()));
+        echo json_encode([
+            'success' => false, 
+            'message' => 'Data gambar kosong atau terlalu kecil',
+            'debug' => [
+                'content_type' => $contentType,
+                'content_length_header' => $_SERVER['CONTENT_LENGTH'] ?? null,
+                'actual_bytes' => $dataLen
+            ]
+        ]);
         return;
     }
+
+    error_log("[UPLOAD] OK: $dataLen bytes diterima");
 
     if (strlen($imageData) > MAX_FILE_SIZE) {
         http_response_code(400);
