@@ -287,15 +287,33 @@ function runOCR($imagePath) {
  * Simpan data berat ke database
  * SELALU dipanggil — weight bisa null jika OCR gagal total
  */
-function saveWeight($conn, $weight, $imagePath = null, $ocrWeight = null, $ocrStatus = 'success') {
-    $stmt = $conn->prepare("INSERT INTO weight_history (weight_kg, ocr_weight, image_path) VALUES (?, ?, ?)");
-    // Jika weight null (OCR failed), simpan 0 sebagai placeholder
-    $weightVal = ($weight !== null) ? $weight : 0;
-    $ocrVal = ($ocrWeight !== null) ? $ocrWeight : 0;
-    $stmt->bind_param("dds", $weightVal, $ocrVal, $imagePath);
+function saveWeight($conn, $weight, $imagePath = null, $ocrWeight = null, $ocrStatus = 'failed') {
+    $stmt = $conn->prepare(
+        "INSERT INTO weight_history (weight_kg, ocr_weight, image_path, ocr_status) VALUES (?, ?, ?, ?)"
+    );
+    
+    // NULL-safe: jika OCR gagal total, simpan NULL (bukan 0)
+    if ($weight !== null && $weight > 0) {
+        $weightVal = floatval($weight);
+        $ocrVal = ($ocrWeight !== null && $ocrWeight > 0) ? floatval($ocrWeight) : $weightVal;
+    } else {
+        $weightVal = null;
+        $ocrVal = null;
+    }
+    
+    // Validasi ocr_status
+    if (!in_array($ocrStatus, ['success', 'partial', 'failed'])) {
+        $ocrStatus = 'failed';
+    }
+    
+    $stmt->bind_param("ddss", $weightVal, $ocrVal, $imagePath, $ocrStatus);
     $stmt->execute();
+    $insertId = $stmt->insert_id;
     $stmt->close();
-    error_log("Saved: weight=" . $weightVal . ", ocr=" . $ocrVal . ", status=" . $ocrStatus . ", image=" . $imagePath);
+    
+    error_log("[DB] Saved ID=$insertId: weight=" . var_export($weightVal, true) 
+        . ", ocr=" . var_export($ocrVal, true) 
+        . ", status=$ocrStatus, image=$imagePath");
 }
 
 /**
@@ -370,7 +388,7 @@ function handlePostWeight($conn) {
  */
 function handleGetLatest($conn) {
     $result = $conn->query(
-        "SELECT id, weight_kg, ocr_weight, image_path, created_at 
+        "SELECT id, weight_kg, ocr_weight, image_path, ocr_status, created_at 
          FROM weight_history 
          ORDER BY created_at DESC 
          LIMIT 1"
@@ -380,10 +398,11 @@ function handleGetLatest($conn) {
         $row = $result->fetch_assoc();
         $data = [
             'id' => intval($row['id']),
-            'weight_kg' => floatval($row['weight_kg']),
+            'weight_kg' => $row['weight_kg'] !== null ? floatval($row['weight_kg']) : null,
             'ocr_weight' => $row['ocr_weight'] !== null ? floatval($row['ocr_weight']) : null,
             'image_path' => $row['image_path'],
             'image_url' => $row['image_path'] ? $row['image_path'] : null,
+            'ocr_status' => $row['ocr_status'] ?? 'failed',
             'created_at' => $row['created_at']
         ];
         echo json_encode(['success' => true, 'data' => $data]);
@@ -411,10 +430,11 @@ function handleGetHistory($conn, $limit) {
     while ($row = $result->fetch_assoc()) {
         $history[] = [
             'id' => intval($row['id']),
-            'weight_kg' => floatval($row['weight_kg']),
+            'weight_kg' => $row['weight_kg'] !== null ? floatval($row['weight_kg']) : null,
             'ocr_weight' => $row['ocr_weight'] !== null ? floatval($row['ocr_weight']) : null,
             'image_path' => $row['image_path'],
             'image_url' => $row['image_path'] ? $row['image_path'] : null,
+            'ocr_status' => $row['ocr_status'] ?? 'failed',
             'created_at' => $row['created_at']
         ];
     }
@@ -861,7 +881,7 @@ function handleDeleteAll($conn) {
             const timestamp = data.data.created_at;
             currentRecordId = data.data.id;
 
-            elements.currentWeight.textContent = weight.toFixed(2);
+            elements.currentWeight.textContent = (weight !== null && weight > 0) ? weight.toFixed(2) : '--';
 
             const primaryBadge = document.querySelector('.card-primary .badge');
             if (primaryBadge) {
@@ -965,16 +985,32 @@ function handleDeleteAll($conn) {
                     placeholder.style.display = 'none';
                 }
 
-                ocrStatus.textContent = 'Berhasil';
-                ocrStatus.className = 'badge badge-success';
-                
-                if (data.ocr_weight !== null && data.ocr_weight !== undefined) {
-                    ocrWeight.textContent = data.ocr_weight.toFixed(2) + ' kg';
+                // Status OCR badge berdasarkan ocr_status dari database
+                const status = data.ocr_status || 'failed';
+                if (status === 'success') {
+                    ocrStatus.textContent = 'Berhasil';
+                    ocrStatus.className = 'badge badge-success';
+                } else if (status === 'partial') {
+                    ocrStatus.textContent = 'Parsial';
+                    ocrStatus.className = 'badge badge-warning';
                 } else {
-                    ocrWeight.textContent = data.weight_kg.toFixed(2) + ' kg';
+                    ocrStatus.textContent = 'OCR Gagal';
+                    ocrStatus.className = 'badge badge-danger';
                 }
                 
-                finalWeight.textContent = data.weight_kg.toFixed(2) + ' kg';
+                // OCR weight (null-safe)
+                if (data.ocr_weight !== null && data.ocr_weight !== undefined && data.ocr_weight > 0) {
+                    ocrWeight.textContent = data.ocr_weight.toFixed(2) + ' kg';
+                } else {
+                    ocrWeight.textContent = '- (belum terbaca)';
+                }
+                
+                // Final weight (null-safe)
+                if (data.weight_kg !== null && data.weight_kg !== undefined && data.weight_kg > 0) {
+                    finalWeight.textContent = data.weight_kg.toFixed(2) + ' kg';
+                } else {
+                    finalWeight.textContent = '- (input manual)';
+                }
 
                 const date = new Date(data.created_at);
                 captureTime.textContent = date.toLocaleDateString('id-ID', {
@@ -987,7 +1023,7 @@ function handleDeleteAll($conn) {
                 ocrStatus.textContent = 'Input Manual';
                 ocrStatus.className = 'badge badge-neutral';
                 ocrWeight.textContent = '-';
-                finalWeight.textContent = data.weight_kg.toFixed(2) + ' kg';
+                finalWeight.textContent = (data.weight_kg && data.weight_kg > 0) ? data.weight_kg.toFixed(2) + ' kg' : '- (input manual)';
 
                 const date = new Date(data.created_at);
                 captureTime.textContent = date.toLocaleDateString('id-ID', {
