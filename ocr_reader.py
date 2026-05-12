@@ -276,8 +276,8 @@ def parse_weight(text):
 
 def read_weight(image_path):
     """
-    Main OCR: detect display, run 4 variants sequentially, vote for best weight.
-    Memory-optimized: only one variant image in RAM at a time.
+    Main OCR: detect display, process variants one at a time.
+    KUNCI: emit JSON result segera begitu dapet angka (anti OOM-kill).
     """
     try:
         import cv2
@@ -285,39 +285,35 @@ def read_weight(image_path):
 
         img = cv2.imread(image_path)
         if img is None:
-            return {"success": False, "weight": None, "message": "Gagal membaca gambar"}
+            return {"success": False, "weight": None, "message": "Gagal membaca gambar", "ocr_status": "failed"}
 
         h, w = img.shape[:2]
         log("Image: %dx%d" % (w, h))
         save_debug("original", img)
 
-        # Step 1: Detect display (returns single crop)
+        # Step 1: Detect display
         display = detect_display(img)
         dh, dw = display.shape[:2]
         log("Display crop: %dx%d" % (dw, dh))
         save_debug("display", display)
 
-        # Free original image — no longer needed
         del img
         gc.collect()
 
-        # Step 2: Initialize EasyOCR once (biggest RAM cost, ~500MB)
+        # Step 2: Init EasyOCR
         log("Loading EasyOCR...")
         reader = easyocr.Reader(['en'], gpu=False, verbose=False)
         log("EasyOCR ready")
 
-        # Step 3: Process variants ONE AT A TIME (key RAM optimization)
-        # Order: most effective first → early stop saves time + RAM
-        variant_names = ["color", "otsu", "inverted", "adaptive"]
+        # Step 3: Process variants — EMIT SEGERA begitu dapat angka
+        # Hanya 2 variant (hemat RAM): color paling sering berhasil, otsu backup
+        variant_names = ["color", "otsu"]
 
-        weight_votes = {}
-        found_high_conf = False
+        best_weight = None
+        best_conf = 0
+        best_source = ""
 
         for vname in variant_names:
-            if found_high_conf:
-                log("Skipping %s (early stop)" % vname)
-                continue
-
             log("Processing: %s" % vname)
             ocr_results = process_variant(display, vname, reader)
 
@@ -328,61 +324,38 @@ def read_weight(image_path):
                 w_val = parse_weight(text)
                 if w_val is not None:
                     log("  '%s' -> %.2f kg (conf:%.3f)" % (text, w_val, conf))
-                    key = round(w_val, 1)
-                    weight_votes.setdefault(key, []).append((conf, vname))
-
-                    # EARLY STOP: high confidence + valid weight
-                    if conf > 0.85 and 10 <= w_val <= 200:
-                        log("  HIGH CONFIDENCE -> early stop!")
-                        found_high_conf = True
-                        break
+                    # Simpan yang confidence tertinggi
+                    if conf > best_conf:
+                        best_weight = w_val
+                        best_conf = conf
+                        best_source = vname
                 else:
-                    log("  '%s' (conf:%.3f) -> no valid weight" % (text, conf))
+                    log("  '%s' (conf:%.3f) -> no parse" % (text, conf))
 
-        # Step 4: Vote for best weight
-        log("Candidates: %s" % {str(k): len(v) for k, v in weight_votes.items()})
+            # Setelah selesai 1 variant: jika sudah dapat angka, EMIT SEGERA
+            if best_weight is not None:
+                status = "success" if best_conf >= 0.5 else "partial"
+                result = {
+                    "success": True,
+                    "weight": float(best_weight),
+                    "confidence": round(float(best_conf), 3),
+                    "votes": 1,
+                    "source": best_source,
+                    "ocr_status": status,
+                }
+                # CETAK JSON SEGERA — anti OOM kill
+                _emit_result(result)
+                log("EMITTED: %.2f kg (conf:%.3f, src:%s)" % (best_weight, best_conf, best_source))
 
-        if weight_votes:
-            scored = []
-            for wval, votes in weight_votes.items():
-                n = len(votes)
-                avg_conf = sum(c for c, _ in votes) / n
-                max_conf = max(c for c, _ in votes)
-                score = n * (avg_conf * 0.6 + max_conf * 0.4) + (n - 1) * 0.2
-                scored.append((wval, score, n, max_conf, votes[0][1]))
+                # Langsung stop, jangan proses variant lain (hemat RAM)
+                try:
+                    del reader, display
+                    gc.collect()
+                except Exception:
+                    pass
+                return result
 
-            scored.sort(key=lambda x: -x[1])
-            best = scored[0]
-            best_conf = float(best[3])
-
-            if best_conf >= 0.5:
-                status = "success"
-            else:
-                status = "partial"
-
-            result = {
-                "success": True,
-                "weight": float(best[0]),
-                "confidence": round(best_conf, 3),
-                "votes": int(best[2]),
-                "source": str(best[4]),
-                "ocr_status": status,
-            }
-
-            # KUNCI: cetak JSON SEGERA sebelum cleanup (anti OOM-kill)
-            _emit_result(result)
-
-            log("RESULT: %.2f kg (status:%s, votes:%d, conf:%.3f)" % (best[0], status, best[2], best_conf))
-
-            try:
-                del reader, display
-                gc.collect()
-            except Exception:
-                pass
-
-            return result
-
-        # Step 5: Fallback — semua weight_votes kosong
+        # Tidak ada angka terbaca dari semua variant
         result = {
             "success": False,
             "weight": None,
@@ -396,7 +369,6 @@ def read_weight(image_path):
             gc.collect()
         except Exception:
             pass
-
         return result
 
     except Exception as e:
