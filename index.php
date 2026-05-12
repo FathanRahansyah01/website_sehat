@@ -36,9 +36,9 @@ if ($isApiRequest) {
         if (empty($contentType) && isset($_SERVER['HTTP_CONTENT_TYPE'])) {
             $contentType = $_SERVER['HTTP_CONTENT_TYPE'];
         }
-        
+
         error_log("[ROUTING] POST received: CONTENT_TYPE='$contentType', CONTENT_LENGTH=" . ($_SERVER['CONTENT_LENGTH'] ?? '?'));
-        
+
         if (strpos($contentType, 'multipart/form-data') !== false || isset($_FILES['image'])) {
             handleImageUpload($conn);
         } elseif (
@@ -100,11 +100,12 @@ $conn->close();
  * POST - Menerima gambar mentah langsung dari ESP32-CAM
  * ESP32 mengirim JPEG bytes langsung di body request
  */
-function handleRawImageUpload($conn, $contentType) {
+function handleRawImageUpload($conn, $contentType)
+{
     // Debug: log semua info request
     error_log("[UPLOAD] Content-Type: $contentType");
     error_log("[UPLOAD] CONTENT_LENGTH header: " . ($_SERVER['CONTENT_LENGTH'] ?? 'NOT SET'));
-    
+
     $imageData = file_get_contents('php://input');
     $dataLen = strlen($imageData);
     error_log("[UPLOAD] php://input strlen: $dataLen bytes");
@@ -125,7 +126,7 @@ function handleRawImageUpload($conn, $contentType) {
         http_response_code(400);
         error_log("[UPLOAD] GAGAL: data kosong ($dataLen bytes). Headers: " . json_encode(getallheaders()));
         echo json_encode([
-            'success' => false, 
+            'success' => false,
             'message' => 'Data gambar kosong atau terlalu kecil',
             'debug' => [
                 'content_type' => $contentType,
@@ -192,7 +193,8 @@ function handleRawImageUpload($conn, $contentType) {
 /**
  * POST - Menerima gambar via multipart form-data
  */
-function handleImageUpload($conn) {
+function handleImageUpload($conn)
+{
     if (!isset($_FILES['image']) || $_FILES['image']['error'] !== UPLOAD_ERR_OK) {
         http_response_code(400);
         $errorMsg = isset($_FILES['image']) ? 'Upload error: ' . $_FILES['image']['error'] : 'Field "image" tidak ditemukan';
@@ -237,7 +239,7 @@ function handleImageUpload($conn) {
     saveWeight($conn, $weight, $imagePath, $weight, $ocrStatus);
 
     $message = ($ocrStatus === 'success') ? 'OCR berhasil: ' . $weight . ' kg' :
-               (($ocrStatus === 'partial') ? 'OCR parsial: ' . $weight . ' kg' : 'OCR gagal, input manual diperlukan');
+        (($ocrStatus === 'partial') ? 'OCR parsial: ' . $weight . ' kg' : 'OCR gagal, input manual diperlukan');
 
     echo json_encode([
         'success' => true,
@@ -254,12 +256,13 @@ function handleImageUpload($conn) {
  * Jalankan OCR menggunakan EasyOCR (Python)
  * @return array ['weight' => float|null, 'confidence' => float, 'ocr_status' => 'success'|'partial'|'failed']
  */
-function runOCR($imagePath) {
+function runOCR($imagePath)
+{
     $pythonScript = __DIR__ . '/ocr_reader.py';
     $defaultResult = ['weight' => null, 'confidence' => 0, 'ocr_status' => 'failed'];
-    
+
     if (!file_exists($pythonScript)) {
-        error_log("OCR script not found: " . $pythonScript);
+        error_log("[OCR-PHP] Script not found: " . $pythonScript);
         return $defaultResult;
     }
 
@@ -267,40 +270,57 @@ function runOCR($imagePath) {
     if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
         $pythonBin = 'python';
     }
-    $cmd = $pythonBin . ' "' . $pythonScript . '" "' . $imagePath . '" 2>&1';
-    error_log("OCR command: " . $cmd);
-    $output = shell_exec($cmd);
-    
-    error_log("OCR raw output: " . substr($output ?? '', 0, 500));
-    
-    if (!$output) {
-        error_log("OCR: no output from Python");
+    $cmd = $pythonBin . ' "' . $pythonScript . '" "' . $imagePath . '"';
+    error_log("[OCR-PHP] Command: " . $cmd);
+
+    // Gunakan proc_open agar bisa tangkap stdout DAN stderr terpisah
+    $descriptors = [
+        0 => ['pipe', 'r'],  // stdin
+        1 => ['pipe', 'w'],  // stdout
+        2 => ['pipe', 'w'],  // stderr
+    ];
+
+    $process = proc_open($cmd, $descriptors, $pipes);
+    if (!is_resource($process)) {
+        error_log("[OCR-PHP] proc_open failed");
         return $defaultResult;
     }
 
-    // Cari JSON dari output (scan dari akhir)
-    $lines = explode("\n", trim($output));
+    fclose($pipes[0]); // tutup stdin
+
+    // Baca stdout dan stderr (timeout 120 detik)
+    stream_set_timeout($pipes[1], 120);
+    stream_set_timeout($pipes[2], 120);
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+
+    $exitCode = proc_close($process);
+
+    error_log("[OCR-PHP] Exit code: $exitCode");
+    error_log("[OCR-PHP] stdout (" . strlen($stdout) . " bytes): " . substr($stdout, 0, 500));
+    error_log("[OCR-PHP] stderr (" . strlen($stderr) . " bytes): " . substr($stderr, 0, 500));
+
+    // Cari JSON result — cek stdout dulu, lalu stderr (fallback)
     $jsonLine = null;
-    for ($i = count($lines) - 1; $i >= 0; $i--) {
-        $trimmed = trim($lines[$i]);
-        if (strpos($trimmed, '{') === 0) {
-            $jsonLine = $trimmed;
-            break;
-        }
-        if (strpos($trimmed, '[RESULT] {') !== false) {
-            $jsonLine = substr($trimmed, strpos($trimmed, '{'));
-            break;
-        }
-    }
-    
+
+    // 1. Cari di stdout (output utama)
+    $jsonLine = _findJsonInOutput($stdout);
+
+    // 2. Fallback: cari di stderr (via [RESULT] prefix)
     if (!$jsonLine) {
-        error_log("OCR: no JSON found in output");
+        $jsonLine = _findJsonInOutput($stderr);
+    }
+
+    if (!$jsonLine) {
+        error_log("[OCR-PHP] GAGAL: Tidak ada JSON di output. Killed by OOM? Exit=$exitCode");
         return $defaultResult;
     }
 
     $result = json_decode($jsonLine, true);
     if (!$result) {
-        error_log("OCR: JSON decode failed: " . $jsonLine);
+        error_log("[OCR-PHP] JSON decode failed: " . $jsonLine);
         return $defaultResult;
     }
 
@@ -308,15 +328,15 @@ function runOCR($imagePath) {
     $confidence = isset($result['confidence']) ? floatval($result['confidence']) : 0;
     $ocrStatus = isset($result['ocr_status']) ? $result['ocr_status'] : 'failed';
 
-    // Validasi weight masuk akal (sangat permisif: 1-500 kg)
-    if ($weight !== null && ($weight < 1 || $weight > 500)) {
-        error_log("OCR: weight out of range: " . $weight);
+    // Validasi weight (sangat permisif: 0.1 - 500 kg)
+    if ($weight !== null && ($weight < 0.1 || $weight > 500)) {
+        error_log("[OCR-PHP] Weight out of range: " . $weight);
         $weight = null;
         $ocrStatus = 'failed';
     }
 
-    error_log("OCR result: weight=" . ($weight ?? 'null') . ", status=" . $ocrStatus . ", conf=" . $confidence);
-    
+    error_log("[OCR-PHP] Final: weight=" . ($weight ?? 'null') . ", status=" . $ocrStatus . ", conf=" . $confidence);
+
     return [
         'weight' => $weight,
         'confidence' => $confidence,
@@ -325,14 +345,39 @@ function runOCR($imagePath) {
 }
 
 /**
+ * Helper: cari JSON line di output string (scan dari akhir)
+ */
+function _findJsonInOutput($output) {
+    if (empty($output)) return null;
+
+    $lines = explode("\n", trim($output));
+    for ($i = count($lines) - 1; $i >= 0; $i--) {
+        $trimmed = trim($lines[$i]);
+        // JSON langsung
+        if (strpos($trimmed, '{"success"') === 0 || strpos($trimmed, '{') === 0) {
+            $decoded = json_decode($trimmed, true);
+            if ($decoded !== null) return $trimmed;
+        }
+        // [RESULT] prefix
+        if (strpos($trimmed, '[RESULT] {') !== false) {
+            $json = substr($trimmed, strpos($trimmed, '{'));
+            $decoded = json_decode($json, true);
+            if ($decoded !== null) return $json;
+        }
+    }
+    return null;
+}
+
+/**
  * Simpan data berat ke database
  * SELALU dipanggil — weight bisa null jika OCR gagal total
  */
-function saveWeight($conn, $weight, $imagePath = null, $ocrWeight = null, $ocrStatus = 'failed') {
+function saveWeight($conn, $weight, $imagePath = null, $ocrWeight = null, $ocrStatus = 'failed')
+{
     $stmt = $conn->prepare(
         "INSERT INTO weight_history (weight_kg, ocr_weight, image_path, ocr_status) VALUES (?, ?, ?, ?)"
     );
-    
+
     // NULL-safe: jika OCR gagal total, simpan NULL (bukan 0)
     if ($weight !== null && $weight > 0) {
         $weightVal = floatval($weight);
@@ -341,26 +386,27 @@ function saveWeight($conn, $weight, $imagePath = null, $ocrWeight = null, $ocrSt
         $weightVal = null;
         $ocrVal = null;
     }
-    
+
     // Validasi ocr_status
     if (!in_array($ocrStatus, ['success', 'partial', 'failed'])) {
         $ocrStatus = 'failed';
     }
-    
+
     $stmt->bind_param("ddss", $weightVal, $ocrVal, $imagePath, $ocrStatus);
     $stmt->execute();
     $insertId = $stmt->insert_id;
     $stmt->close();
-    
-    error_log("[DB] Saved ID=$insertId: weight=" . var_export($weightVal, true) 
-        . ", ocr=" . var_export($ocrVal, true) 
+
+    error_log("[DB] Saved ID=$insertId: weight=" . var_export($weightVal, true)
+        . ", ocr=" . var_export($ocrVal, true)
         . ", status=$ocrStatus, image=$imagePath");
 }
 
 /**
  * POST - Menerima data berat via JSON (manual / fallback)
  */
-function handlePostWeight($conn) {
+function handlePostWeight($conn)
+{
     $input = file_get_contents('php://input');
     $data = json_decode($input, true);
 
@@ -383,7 +429,7 @@ function handlePostWeight($conn) {
         $id = intval($data['id']);
         $stmt = $conn->prepare("UPDATE weight_history SET weight_kg = ? WHERE id = ?");
         $stmt->bind_param("di", $weight, $id);
-        
+
         if ($stmt->execute()) {
             http_response_code(200);
             echo json_encode([
@@ -427,7 +473,8 @@ function handlePostWeight($conn) {
 /**
  * GET - Data berat terbaru
  */
-function handleGetLatest($conn) {
+function handleGetLatest($conn)
+{
     $result = $conn->query(
         "SELECT id, weight_kg, ocr_weight, image_path, ocr_status, created_at 
          FROM weight_history 
@@ -455,7 +502,8 @@ function handleGetLatest($conn) {
 /**
  * GET - Riwayat berat badan
  */
-function handleGetHistory($conn, $limit) {
+function handleGetHistory($conn, $limit)
+{
     $limit = max(1, min(100, $limit));
     $stmt = $conn->prepare(
         "SELECT id, weight_kg, ocr_weight, image_path, created_at 
@@ -487,7 +535,8 @@ function handleGetHistory($conn, $limit) {
 /**
  * GET - Serve gambar berdasarkan ID record
  */
-function handleGetImage($conn, $id) {
+function handleGetImage($conn, $id)
+{
     if ($id <= 0) {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => 'ID tidak valid']);
@@ -519,7 +568,8 @@ function handleGetImage($conn, $id) {
 /**
  * DELETE - Hapus satu data berat berdasarkan ID
  */
-function handleDeleteWeight($conn, $id) {
+function handleDeleteWeight($conn, $id)
+{
     if ($id <= 0) {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => 'ID tidak valid']);
@@ -540,7 +590,8 @@ function handleDeleteWeight($conn, $id) {
         // Hapus juga file preprocessed (jika ada)
         $base = __DIR__ . '/' . pathinfo($row['image_path'], PATHINFO_DIRNAME) . '/' . pathinfo($row['image_path'], PATHINFO_FILENAME);
         foreach (['_crop_enhance.png', '_thresh_low.png', '_thresh_high.png', '_inverted.png', '_upscale.png'] as $suffix) {
-            if (file_exists($base . $suffix)) unlink($base . $suffix);
+            if (file_exists($base . $suffix))
+                unlink($base . $suffix);
         }
     }
     $stmt->close();
@@ -561,7 +612,8 @@ function handleDeleteWeight($conn, $id) {
 /**
  * DELETE - Hapus semua data riwayat
  */
-function handleDeleteAll($conn) {
+function handleDeleteAll($conn)
+{
     // Hapus semua file gambar di uploads
     $result = $conn->query("SELECT image_path FROM weight_history WHERE image_path IS NOT NULL");
     while ($row = $result->fetch_assoc()) {
@@ -614,7 +666,8 @@ function handleDeleteAll($conn) {
             <div class="hero-text">
                 <div class="hero-badge">IoT Connected</div>
                 <h1 class="hero-title">Smart Weight <span class="text-gradient">Monitor</span></h1>
-                <p class="hero-subtitle">Pantau berat badan Anda secara real-time menggunakan teknologi IoT. Data langsung dari sensor timbangan pintar.</p>
+                <p class="hero-subtitle">Pantau berat badan Anda secara real-time menggunakan teknologi IoT. Data
+                    langsung dari sensor timbangan pintar.</p>
             </div>
         </div>
     </header>
@@ -640,7 +693,12 @@ function handleDeleteAll($conn) {
             <!-- Current Weight Card -->
             <div class="card card-primary">
                 <div class="card-header">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5h11l-.5 9.5a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L6.5 6.5z"/><path d="M8 6.5V5a4 4 0 0 1 8 0v1.5"/><circle cx="12" cy="13" r="2"/></svg>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)"
+                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M6.5 6.5h11l-.5 9.5a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L6.5 6.5z" />
+                        <path d="M8 6.5V5a4 4 0 0 1 8 0v1.5" />
+                        <circle cx="12" cy="13" r="2" />
+                    </svg>
                     <span class="card-label">Berat Saat Ini</span>
                 </div>
                 <div class="card-body">
@@ -658,7 +716,10 @@ function handleDeleteAll($conn) {
             <!-- BMI Card -->
             <div class="card">
                 <div class="card-header">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--tel-red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--tel-red)" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                    </svg>
                     <span class="card-label">Indeks Massa Tubuh (BMI)</span>
                 </div>
                 <div class="card-body">
@@ -668,7 +729,8 @@ function handleDeleteAll($conn) {
                     </div>
                     <div class="input-inline">
                         <label for="inputHeight">Tinggi Badan:</label>
-                        <input type="number" id="inputHeight" class="inline-input" value="170" min="100" max="250" step="1">
+                        <input type="number" id="inputHeight" class="inline-input" value="170" min="100" max="250"
+                            step="1">
                         <span class="input-suffix">cm</span>
                     </div>
                 </div>
@@ -680,7 +742,12 @@ function handleDeleteAll($conn) {
             <!-- Target Weight Card -->
             <div class="card">
                 <div class="card-header">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--tel-red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--tel-red)" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <circle cx="12" cy="12" r="6" />
+                        <circle cx="12" cy="12" r="2" />
+                    </svg>
                     <span class="card-label">Target Berat</span>
                 </div>
                 <div class="card-body">
@@ -690,7 +757,8 @@ function handleDeleteAll($conn) {
                     </div>
                     <div class="input-inline">
                         <label for="inputTarget">Atur Target:</label>
-                        <input type="number" id="inputTarget" class="inline-input" value="65" min="20" max="200" step="0.1">
+                        <input type="number" id="inputTarget" class="inline-input" value="65" min="20" max="200"
+                            step="0.1">
                         <span class="input-suffix">kg</span>
                     </div>
                 </div>
@@ -702,7 +770,11 @@ function handleDeleteAll($conn) {
             <!-- Last Session Card -->
             <div class="card">
                 <div class="card-header">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--tel-red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--tel-red)" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <polyline points="12 6 12 12 16 14" />
+                    </svg>
                     <span class="card-label">Pengukuran Terakhir</span>
                 </div>
                 <div class="card-body">
@@ -725,7 +797,8 @@ function handleDeleteAll($conn) {
                 <h2 class="section-title">Live Kamera ESP32</h2>
                 <div class="esp-ip-row">
                     <label class="camera-info-label">IP ESP32-CAM:</label>
-                    <input type="text" id="esp32IpInput" class="inline-input esp-ip-input" placeholder="cth: 172.19.163.99" value="">
+                    <input type="text" id="esp32IpInput" class="inline-input esp-ip-input"
+                        placeholder="cth: 172.19.163.99" value="">
                     <button id="btnConnectEsp" class="btn btn-primary" style="padding: 8px 16px;">Hubungkan</button>
                 </div>
             </div>
@@ -748,11 +821,13 @@ function handleDeleteAll($conn) {
                     </div>
                     <div class="camera-info-row">
                         <span class="camera-info-label">Alamat Stream:</span>
-                        <span class="camera-info-value" id="streamUrl" style="font-size:11px; word-break:break-all;">--</span>
+                        <span class="camera-info-value" id="streamUrl"
+                            style="font-size:11px; word-break:break-all;">--</span>
                     </div>
                     <div class="camera-info-row">
                         <span class="camera-info-label">Hasil Capture OCR:</span>
-                        <span class="camera-info-value camera-weight" id="liveOcrResult" style="color: var(--grey-400);">-- kg</span>
+                        <span class="camera-info-value camera-weight" id="liveOcrResult"
+                            style="color: var(--grey-400);">-- kg</span>
                     </div>
 
                     <!-- Action Buttons -->
@@ -791,18 +866,24 @@ function handleDeleteAll($conn) {
                     </div>
                     <div class="camera-info-row">
                         <span class="camera-info-label">Berat Terbaca OCR:</span>
-                        <span class="camera-info-value camera-weight" id="ocrWeight" style="color: var(--grey-400);">-- kg</span>
+                        <span class="camera-info-value camera-weight" id="ocrWeight" style="color: var(--grey-400);">--
+                            kg</span>
                     </div>
                     <div class="camera-info-row">
                         <span class="camera-info-label">Berat Final:</span>
-                        <span class="camera-info-value camera-weight" id="finalWeight" style="color: var(--tel-red); font-weight: 700;">-- kg</span>
+                        <span class="camera-info-value camera-weight" id="finalWeight"
+                            style="color: var(--tel-red); font-weight: 700;">-- kg</span>
                     </div>
 
-                    <div class="camera-info-row" id="manualInputBlock" style="display: flex; margin-top: 8px; flex-direction: column; align-items: flex-start; border-top: 1px dashed var(--grey-200); padding-top: 16px;">
-                        <label class="camera-info-label" style="margin-bottom: 10px; font-weight: 600;">Koreksi / Input Manual Berat:</label>
+                    <div class="camera-info-row" id="manualInputBlock"
+                        style="display: flex; margin-top: 8px; flex-direction: column; align-items: flex-start; border-top: 1px dashed var(--grey-200); padding-top: 16px;">
+                        <label class="camera-info-label" style="margin-bottom: 10px; font-weight: 600;">Koreksi / Input
+                            Manual Berat:</label>
                         <div style="display: flex; gap: 10px; width: 100%;">
-                            <input type="number" id="manualWeightInput" step="0.1" class="inline-input" placeholder="Contoh: 65.5" style="flex: 1; min-width: 0;">
-                            <button id="btnSaveManual" class="btn btn-primary" style="padding: 8px 18px; white-space: nowrap;">Simpan</button>
+                            <input type="number" id="manualWeightInput" step="0.1" class="inline-input"
+                                placeholder="Contoh: 65.5" style="flex: 1; min-width: 0;">
+                            <button id="btnSaveManual" class="btn btn-primary"
+                                style="padding: 8px 18px; white-space: nowrap;">Simpan</button>
                         </div>
                     </div>
 
@@ -844,7 +925,7 @@ function handleDeleteAll($conn) {
         let lastWeightData = null;
         let isConnected = false;
         let lastImagePath = null;
-        let currentRecordId = null; 
+        let currentRecordId = null;
 
         // --- Load saved settings dari localStorage ---
         function loadSettings() {
@@ -1038,14 +1119,14 @@ function handleDeleteAll($conn) {
                     ocrStatus.textContent = 'OCR Gagal';
                     ocrStatus.className = 'badge badge-danger';
                 }
-                
+
                 // OCR weight (null-safe)
                 if (data.ocr_weight !== null && data.ocr_weight !== undefined && data.ocr_weight > 0) {
                     ocrWeight.textContent = data.ocr_weight.toFixed(2) + ' kg';
                 } else {
                     ocrWeight.textContent = '- (belum terbaca)';
                 }
-                
+
                 // Final weight (null-safe)
                 if (data.weight_kg !== null && data.weight_kg !== undefined && data.weight_kg > 0) {
                     finalWeight.textContent = data.weight_kg.toFixed(2) + ' kg';
@@ -1058,7 +1139,7 @@ function handleDeleteAll($conn) {
                     day: 'numeric', month: 'short', year: 'numeric',
                     hour: '2-digit', minute: '2-digit', second: '2-digit'
                 });
-                
+
                 document.getElementById('manualInputBlock').style.display = 'flex';
             } else if (data && !data.image_url) {
                 ocrStatus.textContent = 'Input Manual';
@@ -1071,7 +1152,7 @@ function handleDeleteAll($conn) {
                     day: 'numeric', month: 'short', year: 'numeric',
                     hour: '2-digit', minute: '2-digit', second: '2-digit'
                 });
-                
+
                 document.getElementById('manualInputBlock').style.display = 'flex';
             } else {
                 document.getElementById('manualInputBlock').style.display = 'none';
@@ -1127,12 +1208,12 @@ function handleDeleteAll($conn) {
         let esp32Ip = localStorage.getItem('sw_esp32_ip') || '';
         let flashOn = false;
 
-        const liveStream   = document.getElementById('liveStream');
+        const liveStream = document.getElementById('liveStream');
         const livePlaceholder = document.getElementById('livePlaceholder');
         const streamStatus = document.getElementById('streamStatus');
-        const streamUrl    = document.getElementById('streamUrl');
-        const btnCapture   = document.getElementById('btnLiveCapture');
-        const btnFlash     = document.getElementById('btnLiveFlash');
+        const streamUrl = document.getElementById('streamUrl');
+        const btnCapture = document.getElementById('btnLiveCapture');
+        const btnFlash = document.getElementById('btnLiveFlash');
         const captureStatus = document.getElementById('liveCaptureStatus');
         const esp32IpInput = document.getElementById('esp32IpInput');
 
