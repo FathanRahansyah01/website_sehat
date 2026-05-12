@@ -38,10 +38,14 @@ ENV TZ=Asia/Jakarta
 # --- Layer 5: Application code (berubah sering, di bawah supaya layer atas cached) ---
 COPY . /var/www/html/
 
-# Setup permissions
+# Setup permissions + EasyOCR cache directory
 RUN mkdir -p /var/www/html/uploads \
-    && chown -R www-data:www-data /var/www/html \
-    && chmod -R 755 /var/www/html/uploads
+    && mkdir -p /var/www/.EasyOCR \
+    && chown -R www-data:www-data /var/www/html /var/www/.EasyOCR \
+    && chmod -R 755 /var/www/html/uploads /var/www/.EasyOCR
+
+# EasyOCR model cache path (www-data harus bisa tulis ke sini)
+ENV EASYOCR_MODULE_PATH=/var/www/.EasyOCR
 
 # Verifikasi OCR (build gagal kalau deps missing)
 RUN python -c "import cv2; import easyocr; print('OCR OK:', cv2.__version__)"
