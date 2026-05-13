@@ -512,7 +512,7 @@ function handleGetHistory($conn, $limit)
 {
     $limit = max(1, min(100, $limit));
     $stmt = $conn->prepare(
-        "SELECT id, weight_kg, ocr_weight, image_path, created_at 
+        "SELECT id, weight_kg, ocr_weight, image_path, ocr_status, created_at 
          FROM weight_history 
          ORDER BY created_at DESC 
          LIMIT ?"
