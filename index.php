@@ -388,7 +388,7 @@ function saveWeight($conn, $weight, $imagePath = null, $ocrWeight = null, $ocrSt
     }
 
     // Validasi ocr_status
-    if (!in_array($ocrStatus, ['success', 'partial', 'failed'])) {
+    if (!in_array($ocrStatus, ['success', 'partial', 'failed', 'manual'])) {
         $ocrStatus = 'failed';
     }
 
@@ -427,23 +427,29 @@ function handlePostWeight($conn)
     // Jika ada ID, lakukan UPDATE (Koreksi manual)
     if (isset($data['id'])) {
         $id = intval($data['id']);
-        $stmt = $conn->prepare("UPDATE weight_history SET weight_kg = ? WHERE id = ?");
+        $stmt = $conn->prepare("UPDATE weight_history SET weight_kg = ?, ocr_status = 'manual' WHERE id = ?");
         $stmt->bind_param("di", $weight, $id);
 
-        if ($stmt->execute()) {
+        if ($stmt->execute() && $stmt->affected_rows > 0) {
+            // Ambil data lengkap setelah update
+            $stmt->close();
+            $row = $conn->query("SELECT * FROM weight_history WHERE id = $id")->fetch_assoc();
             http_response_code(200);
             echo json_encode([
                 'success' => true,
-                'message' => 'Data berat berhasil dikoreksi secara manual',
+                'message' => 'Berat berhasil dikoreksi manual',
                 'data' => [
                     'id' => $id,
-                    'weight_kg' => $weight,
-                    'is_manual' => true
+                    'weight_kg' => floatval($row['weight_kg']),
+                    'ocr_weight' => $row['ocr_weight'] !== null ? floatval($row['ocr_weight']) : null,
+                    'ocr_status' => 'manual',
+                    'image_path' => $row['image_path']
                 ]
             ]);
         } else {
-            http_response_code(500);
-            echo json_encode(['success' => false, 'message' => 'Gagal mengoreksi data']);
+            $stmt->close();
+            http_response_code(404);
+            echo json_encode(['success' => false, 'message' => 'Data dengan ID ' . $id . ' tidak ditemukan']);
         }
     } else {
         // Jika tidak ada ID, lakukan INSERT baru
@@ -1175,8 +1181,11 @@ function handleDeleteAll($conn)
                 btn.textContent = 'Menyimpan...';
                 btn.disabled = true;
 
-                // Selalu INSERT baru agar masuk sebagai data baru di riwayat
+                // Kirim ID record untuk UPDATE (bukan INSERT baru)
                 const payload = { weight_kg: newWeight };
+                if (currentRecordId) {
+                    payload.id = currentRecordId;
+                }
 
                 const response = await fetch(API_URL, {
                     method: 'POST',
@@ -1186,7 +1195,7 @@ function handleDeleteAll($conn)
 
                 const result = await response.json();
                 if (result.success) {
-                    alert('Data berat berhasil disimpan!');
+                    alert('Berat berhasil dikoreksi!');
                     document.getElementById('manualWeightInput').value = '';
                     fetchLatestWeight();
                 } else {

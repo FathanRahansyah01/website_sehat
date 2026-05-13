@@ -109,6 +109,35 @@
             letter-spacing: 0.2px;
         }
 
+        .badge-failed {
+            background: #F8D7DA;
+            color: #721C24;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.72rem;
+            font-weight: 600;
+            letter-spacing: 0.2px;
+        }
+
+        .btn-edit {
+            background: none;
+            border: 1px solid #007BFF;
+            color: #007BFF;
+            padding: 6px 14px;
+            border-radius: var(--radius-xs);
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 500;
+            font-family: 'Inter', sans-serif;
+            transition: all var(--transition-fast);
+            margin-right: 6px;
+        }
+
+        .btn-edit:hover {
+            background: #007BFF;
+            color: white;
+        }
+
         .thumb-img {
             width: 56px;
             height: 42px;
@@ -537,6 +566,7 @@
 
                 data.data.forEach((item, index) => {
                     const tr = document.createElement('tr');
+                    tr.id = 'row-' + item.id;
 
                     // Tanggal
                     const date = new Date(item.created_at);
@@ -545,21 +575,29 @@
                         hour: '2-digit', minute: '2-digit'
                     });
 
-                    // Status badge
+                    // Status badge — langsung dari ocr_status database
+                    const status = item.ocr_status || 'failed';
                     let statusBadge = '';
-                    const ocrVal = item.ocr_weight;
-                    const finalVal = item.weight_kg;
-
-                    if (ocrVal !== null && ocrVal !== finalVal) {
-                        statusBadge = '<span class="badge-corrected">Dikoreksi</span>';
-                    } else if (ocrVal !== null) {
-                        statusBadge = '<span class="badge-ocr-only">OCR</span>';
-                    } else {
-                        statusBadge = '<span class="badge-manual">Manual</span>';
+                    switch (status) {
+                        case 'success':
+                            statusBadge = '<span class="badge-ocr-only">OCR Berhasil</span>';
+                            break;
+                        case 'partial':
+                            statusBadge = '<span class="badge-corrected">OCR Parsial</span>';
+                            break;
+                        case 'manual':
+                            statusBadge = '<span class="badge-manual">Koreksi Manual</span>';
+                            break;
+                        case 'failed':
+                        default:
+                            statusBadge = '<span class="badge-failed">OCR Gagal</span>';
+                            break;
                     }
 
-                    // OCR weight
-                    const ocrDisplay = ocrVal !== null ? ocrVal.toFixed(2) : '-';
+                    // Weight display (null-safe)
+                    const finalVal = (item.weight_kg !== null && item.weight_kg > 0) ? item.weight_kg.toFixed(2) : '-';
+                    const ocrVal = item.ocr_weight;
+                    const ocrDisplay = (ocrVal !== null && ocrVal > 0) ? ocrVal.toFixed(2) : '-';
 
                     // Gambar
                     let imgCell = '';
@@ -573,11 +611,14 @@
                     tr.innerHTML = `
                         <td>${index + 1}</td>
                         <td>${dateStr}</td>
-                        <td><span class="weight-final">${finalVal.toFixed(2)}</span></td>
+                        <td><span class="weight-final" id="final-${item.id}">${finalVal}</span></td>
                         <td><span class="weight-ocr">${ocrDisplay}</span></td>
-                        <td>${statusBadge}</td>
+                        <td id="status-${item.id}">${statusBadge}</td>
                         <td>${imgCell}</td>
-                        <td><button class="btn-delete" onclick="deleteRecord(${item.id})">Hapus</button></td>
+                        <td>
+                            <button class="btn-edit" onclick="editRecord(${item.id}, ${item.weight_kg || 0})">Edit</button>
+                            <button class="btn-delete" onclick="deleteRecord(${item.id})">Hapus</button>
+                        </td>
                     `;
 
                     body.appendChild(tr);
@@ -599,6 +640,38 @@
                         <p>Gagal memuat data. Pastikan server aktif.</p>
                     </td></tr>`;
                 document.querySelector('.history-table-wrapper').classList.add('loaded');
+            }
+        }
+
+        // === Edit Record (Koreksi Manual dari Riwayat) ===
+        async function editRecord(id, currentWeight) {
+            const newWeight = prompt('Masukkan berat yang benar (kg):', currentWeight || '');
+            if (newWeight === null) return;
+
+            const weight = parseFloat(newWeight);
+            if (isNaN(weight) || weight < 0.1 || weight > 500) {
+                alert('Berat harus antara 0.1 - 500 kg');
+                return;
+            }
+
+            try {
+                const res = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: id, weight_kg: weight })
+                });
+                const result = await res.json();
+                if (result.success) {
+                    // Update tampilan tanpa reload seluruh tabel
+                    const finalEl = document.getElementById('final-' + id);
+                    const statusEl = document.getElementById('status-' + id);
+                    if (finalEl) finalEl.textContent = weight.toFixed(2);
+                    if (statusEl) statusEl.innerHTML = '<span class="badge-manual">Koreksi Manual</span>';
+                } else {
+                    alert('Gagal mengedit: ' + result.message);
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
             }
         }
 
