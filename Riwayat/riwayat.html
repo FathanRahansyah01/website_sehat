@@ -138,20 +138,33 @@
             color: white;
         }
 
-        .thumb-img {
-            width: 56px;
-            height: 42px;
-            object-fit: cover;
+        .btn-view-img {
+            background: none;
+            border: 1px solid var(--tel-red);
+            color: var(--tel-red);
+            padding: 6px 14px;
             border-radius: var(--radius-xs);
-            border: 1px solid var(--grey-200);
             cursor: pointer;
+            font-size: 0.78rem;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
             transition: all var(--transition-fast);
-            box-shadow: var(--shadow-sm);
+            white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
         }
 
-        .thumb-img:hover {
-            transform: scale(1.15);
-            box-shadow: var(--shadow-md);
+        .btn-view-img:hover {
+            background: var(--tel-red);
+            color: white;
+            box-shadow: 0 2px 8px rgba(228, 0, 43, 0.2);
+        }
+
+        .btn-view-img svg {
+            width: 14px;
+            height: 14px;
+            fill: currentColor;
         }
 
         .no-img {
@@ -245,56 +258,140 @@
             margin-bottom: 10px;
         }
 
-        /* Modal preview gambar */
+        /* Modal preview gambar — detail card */
         .modal-overlay {
             display: none;
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0, 0, 0, 0.75);
-            backdrop-filter: blur(4px);
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(6px);
             z-index: 1000;
             justify-content: center;
             align-items: center;
+            padding: 20px;
         }
 
         .modal-overlay.active {
             display: flex;
-            animation: fadeIn 0.2s ease;
+            animation: fadeIn 0.25s ease;
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
+            from { opacity: 0; transform: scale(0.96); }
+            to { opacity: 1; transform: scale(1); }
         }
 
-        .modal-img {
-            max-width: 90vw;
-            max-height: 80vh;
-            border-radius: var(--radius);
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+        .modal-card {
+            background: var(--white);
+            border-radius: 16px;
+            max-width: 580px;
+            width: 100%;
+            overflow: hidden;
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+            animation: fadeIn 0.25s ease;
         }
 
-        .modal-close {
-            position: fixed;
-            top: 20px;
-            right: 30px;
-            color: white;
-            font-size: 2rem;
+        .modal-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 18px 24px;
+            border-bottom: 1px solid var(--grey-100);
+        }
+
+        .modal-card-header h3 {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--grey-900);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .modal-close-btn {
+            background: var(--grey-100);
+            border: none;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
             cursor: pointer;
-            z-index: 1001;
-            width: 40px;
-            height: 40px;
             display: flex;
             align-items: center;
             justify-content: center;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(8px);
-            transition: background var(--transition-fast);
+            font-size: 1.1rem;
+            color: var(--grey-600);
+            transition: all var(--transition-fast);
         }
 
-        .modal-close:hover {
-            background: rgba(255, 255, 255, 0.25);
+        .modal-close-btn:hover {
+            background: var(--grey-200);
+            color: var(--grey-900);
+        }
+
+        .modal-img-wrapper {
+            background: #1a1a1a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 200px;
+            max-height: 380px;
+            overflow: hidden;
+        }
+
+        .modal-img-wrapper img {
+            max-width: 100%;
+            max-height: 380px;
+            object-fit: contain;
+        }
+
+        .modal-details {
+            padding: 20px 24px;
+        }
+
+        .modal-detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+        }
+
+        .modal-detail-item {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        .modal-detail-label {
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: var(--grey-400);
+            font-weight: 600;
+        }
+
+        .modal-detail-value {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--grey-900);
+        }
+
+        .modal-detail-value.weight-highlight {
+            color: var(--tel-red);
+            font-size: 1.1rem;
+            font-weight: 800;
+        }
+
+        @media (max-width: 500px) {
+            .modal-card {
+                border-radius: 12px;
+            }
+            .modal-detail-grid {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+            .modal-img-wrapper {
+                max-height: 260px;
+            }
         }
 
         /* Confirm dialog */
@@ -496,10 +593,37 @@
         </div>
     </footer>
 
-    <!-- Modal Preview Gambar -->
+    <!-- Modal Preview Gambar (Detail Card) -->
     <div class="modal-overlay" id="imageModal">
-        <span class="modal-close" id="modalClose">&times;</span>
-        <img class="modal-img" id="modalImg" src="" alt="Preview gambar">
+        <div class="modal-card">
+            <div class="modal-card-header">
+                <h3>📷 Detail Capture</h3>
+                <button class="modal-close-btn" id="modalClose">&times;</button>
+            </div>
+            <div class="modal-img-wrapper">
+                <img id="modalImg" src="" alt="Preview gambar">
+            </div>
+            <div class="modal-details">
+                <div class="modal-detail-grid">
+                    <div class="modal-detail-item">
+                        <span class="modal-detail-label">Waktu Capture</span>
+                        <span class="modal-detail-value" id="modalDate">-</span>
+                    </div>
+                    <div class="modal-detail-item">
+                        <span class="modal-detail-label">Status OCR</span>
+                        <span id="modalStatus">-</span>
+                    </div>
+                    <div class="modal-detail-item">
+                        <span class="modal-detail-label">Berat Terbaca OCR</span>
+                        <span class="modal-detail-value" id="modalOcrWeight">-</span>
+                    </div>
+                    <div class="modal-detail-item">
+                        <span class="modal-detail-label">Berat Final</span>
+                        <span class="modal-detail-value weight-highlight" id="modalFinalWeight">-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Confirm Dialog -->
@@ -599,13 +723,17 @@
                     const ocrVal = item.ocr_weight;
                     const ocrDisplay = (ocrVal !== null && ocrVal > 0) ? ocrVal.toFixed(2) : '-';
 
-                    // Gambar
+                    // Gambar — button "Lihat Gambar"
                     let imgCell = '';
                     if (item.image_url) {
-                        imgCell = `<img class="thumb-img" src="${item.image_url}?t=${Date.now()}" 
-                                        alt="Capture" onclick="showImage('${item.image_url}')">`;
+                        // Escape data untuk onclick
+                        const itemJson = JSON.stringify(item).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                        imgCell = `<button class="btn-view-img" onclick='showImageDetail(${JSON.stringify(item)})'>
+                            <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+                            Lihat
+                        </button>`;
                     } else {
-                        imgCell = '<span class="no-img">Tidak ada</span>';
+                        imgCell = '<span class="no-img">-</span>';
                     }
 
                     tr.innerHTML = `
@@ -725,19 +853,50 @@
             }
         });
 
-        // === Image Modal ===
-        function showImage(url) {
-            document.getElementById('modalImg').src = url + '?t=' + Date.now();
+        // === Image Detail Modal ===
+        function showImageDetail(item) {
+            // Gambar
+            document.getElementById('modalImg').src = (item.image_url || item.image_path) + '?t=' + Date.now();
+
+            // Tanggal
+            const date = new Date(item.created_at);
+            document.getElementById('modalDate').textContent = date.toLocaleDateString('id-ID', {
+                day: 'numeric', month: 'long', year: 'numeric',
+                hour: '2-digit', minute: '2-digit', second: '2-digit'
+            });
+
+            // Status OCR badge
+            const status = item.ocr_status || 'failed';
+            const statusMap = {
+                success: '<span class="badge-ocr-only">OCR Berhasil</span>',
+                partial: '<span class="badge-corrected">OCR Parsial</span>',
+                manual: '<span class="badge-manual">Koreksi Manual</span>',
+                failed: '<span class="badge-failed">OCR Gagal</span>'
+            };
+            document.getElementById('modalStatus').innerHTML = statusMap[status] || statusMap.failed;
+
+            // Berat OCR
+            const ocrW = item.ocr_weight;
+            document.getElementById('modalOcrWeight').textContent =
+                (ocrW !== null && ocrW > 0) ? ocrW.toFixed(2) + ' kg' : '- (belum terbaca)';
+
+            // Berat Final
+            const finalW = item.weight_kg;
+            document.getElementById('modalFinalWeight').textContent =
+                (finalW !== null && finalW > 0) ? finalW.toFixed(2) + ' kg' : '- (input manual)';
+
             document.getElementById('imageModal').classList.add('active');
         }
 
-        document.getElementById('modalClose').addEventListener('click', () => {
+        function closeImageModal() {
             document.getElementById('imageModal').classList.remove('active');
-        });
+        }
+
+        document.getElementById('modalClose').addEventListener('click', closeImageModal);
 
         document.getElementById('imageModal').addEventListener('click', (e) => {
             if (e.target === e.currentTarget) {
-                e.currentTarget.classList.remove('active');
+                closeImageModal();
             }
         });
 
